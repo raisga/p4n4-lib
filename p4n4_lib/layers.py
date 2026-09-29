@@ -36,7 +36,7 @@ LAYERS: dict[str, Layer] = {
             ".env",
             "config/mosquitto/mosquitto.conf",
             "config/node-red/settings.js",
-            "config/node-red/flows.json",
+            "config/node-red/flows/flows.json",
             "config/grafana/provisioning/datasources/datasources.yml",
             "scripts/init-buckets.sh",
         ),
@@ -49,6 +49,8 @@ LAYERS: dict[str, Layer] = {
             "INFLUXDB_BUCKET",
             "GRAFANA_USER",
             "GRAFANA_PASSWORD",
+            "NODE_RED_USER",
+            "NODE_RED_PASSWORD",
         ),
     ),
     "ai": Layer(
@@ -75,6 +77,24 @@ LAYERS: dict[str, Layer] = {
     "edge": Layer(
         name="edge",
         repo_url=_sources["edge_repo_url"],
+        copy_paths=("docker-compose.yml", "runner", "edge-impulse", "onnx"),
+        required_files=(
+            "docker-compose.yml",
+            ".env",
+            "runner/Dockerfile",
+            "runner/runner.py",
+            "edge-impulse/models",
+            "onnx/models",
+        ),
+        required_env_keys=(
+            "MODEL_BACKEND",
+            "MQTT_HOST",
+            "MQTT_PORT",
+            "INFLUXDB_TOKEN",
+            "INFLUXDB_ORG",
+            "INFLUXDB_BUCKET_AI_EVENTS",
+            "TZ",
+        ),
     ),
 }
 

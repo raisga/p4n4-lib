@@ -58,7 +58,7 @@ def scaffold_layer(
                 raise ScaffoldError(f"Expected '{name}' in source repo but it was not found.")
             d = project_dir / name
             if s.is_dir():
-                shutil.copytree(s, d)
+                shutil.copytree(s, d, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
             else:
                 shutil.copy2(s, d)
 
