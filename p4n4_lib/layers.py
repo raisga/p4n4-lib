@@ -35,6 +35,7 @@ LAYERS: dict[str, Layer] = {
             "docker-compose.yml",
             ".env",
             "config/mosquitto/mosquitto.conf",
+            "config/mosquitto/bridge.sh",
             "config/node-red/settings.js",
             "config/node-red/flows/flows.json",
             "config/grafana/provisioning/datasources/datasources.yml",
@@ -95,6 +96,16 @@ LAYERS: dict[str, Layer] = {
             "INFLUXDB_BUCKET_AI_EVENTS",
             "TZ",
         ),
+    ),
+    # The web UI (p4n4-dashboard): one container from a released image, so
+    # only its compose file is copied, not the Flutter sources. Last in the
+    # order, so `up` starts it after the stacks it shows and `down` stops it first.
+    "dashboard": Layer(
+        name="dashboard",
+        repo_url=_sources["dashboard_repo_url"],
+        copy_paths=("docker-compose.yml",),
+        required_files=("docker-compose.yml", ".env"),
+        required_env_keys=("DASHBOARD_VERSION", "DASHBOARD_PORT"),
     ),
 }
 

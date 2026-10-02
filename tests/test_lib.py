@@ -65,6 +65,28 @@ def test_env_write_preserves_template_structure(tmp_path):
     assert envutil.load(path) == {"FOO": "override", "KEEP": "asis"}
 
 
+@pytest.mark.parametrize(
+    "value",
+    ["plainhex0123", "pa ss", "s3cr$t", "has#hash", "it's", "mix '\"$\\ all", ""],
+)
+def test_env_roundtrips_any_value(tmp_path, value):
+    path = tmp_path / ".env"
+    envutil.write(path, {"KEY": value})
+    assert envutil.load(path) == {"KEY": value}
+
+
+def test_env_quotes_only_when_needed(tmp_path):
+    path = tmp_path / ".env"
+    envutil.write(path, {"HEX": "abc123", "DOLLAR": "a$b", "QUOTE": "it's $x"})
+    assert path.read_text().splitlines() == ["HEX=abc123", "DOLLAR='a$b'", 'QUOTE="it\'s \\$x"']
+
+
+def test_env_load_strips_inline_comments_like_compose(tmp_path):
+    path = tmp_path / ".env"
+    path.write_text("A=value   # comment\nB=sensors/#\nC='kept # inside'\n")
+    assert envutil.load(path) == {"A": "value", "B": "sensors/#", "C": "kept # inside"}
+
+
 # ── secrets ───────────────────────────────────────────────────────────────────
 
 
@@ -72,6 +94,11 @@ def test_token_length_and_uniqueness():
     a, b = secretutil.token(16), secretutil.token(16)
     assert len(a) == 32
     assert a != b
+
+
+def test_external_keys_are_never_rotated():
+    assert not set(secretutil.EXTERNAL_KEYS) & set(secretutil.ROTATABLE_KEYS)
+    assert "MQTT_REMOTE_PASSWORD" in secretutil.EXTERNAL_KEYS
 
 
 def test_rotation_value_sizes():
@@ -83,7 +110,7 @@ def test_rotation_value_sizes():
 
 
 def test_layer_registry_shape():
-    assert set(LAYERS) == {"iot", "ai", "edge"}
+    assert set(LAYERS) == {"iot", "ai", "edge", "dashboard"}
     for layer in LAYERS.values():
         assert layer.repo_url.startswith("https://")
         assert layer.clone_prefix == f"p4n4-{layer.name}-"
@@ -95,6 +122,8 @@ def test_layer_registry_shape():
 def test_ordered_sorts_into_dependency_order():
     assert layout.ordered(["edge", "ai", "iot"]) == ["iot", "ai", "edge"]
     assert layout.ordered(["ai"]) == ["ai"]
+    # The dashboard starts after the stacks it shows (and stops before them)
+    assert layout.ordered(["dashboard", "iot", "ai"]) == ["iot", "ai", "dashboard"]
 
 
 def test_layer_dir_single_layer_is_project_root(tmp_path):
@@ -229,3 +258,116 @@ def test_validate_multi_layer_flags_per_layer_errors(tmp_path):
     _, errors = validate_project(tmp_path, data)
     assert "Missing file: ai/config/letta/letta.conf" in errors
     assert "iot/.env missing required key: GRAFANA_PASSWORD" in errors
+
+
+# ── template projects ─────────────────────────────────────────────────────────
+
+
+def _make_template_project(tmp_path, **extra):
+    data = {
+        **mf.create("proj", ["iot"]),
+        "template": {"name": "mqtt-influx-grafana", "version": "0.2.0"},
+        **extra,
+    }
+    mf.save(tmp_path / mf.MANIFEST_FILE, data)
+    (tmp_path / "docker-compose.yml").touch()
+    (tmp_path / ".env.example").write_text("INFLUXDB_TOKEN=change-me\nCOMPOSE_PROFILES=demo\n")
+    envutil.write(tmp_path / ".env", {"INFLUXDB_TOKEN": "x", "COMPOSE_PROFILES": ""})
+    return data
+
+
+def test_validate_template_project_skips_base_stack_files(tmp_path):
+    # No Node-RED files or keys: the template replaces the base iot stack
+    data = _make_template_project(tmp_path)
+    passed, errors = validate_project(tmp_path, data)
+    assert errors == []
+    assert ".env: all required keys present" in passed
+
+
+def test_validate_template_project_requires_env_example_keys(tmp_path):
+    data = _make_template_project(tmp_path)
+    envutil.write(tmp_path / ".env", {"COMPOSE_PROFILES": ""})
+    _, errors = validate_project(tmp_path, data)
+    assert errors == [".env missing required key: INFLUXDB_TOKEN"]
+
+
+# ── dashboard block ───────────────────────────────────────────────────────────
+
+
+def test_dashboard_block_is_optional():
+    assert mf.dashboard_errors(mf.create("proj", ["iot"])) == []
+
+
+def test_dashboard_block_valid(tmp_path):
+    dashboard = {"grafana_path": "/d/p4n4-telemetry/telemetry", "tabs": ["services", "grafana"]}
+    data = _make_template_project(tmp_path, dashboard=dashboard)
+    passed, errors = validate_project(tmp_path, data)
+    assert errors == []
+    assert ".p4n4.json: dashboard settings valid" in passed
+
+
+@pytest.mark.parametrize(
+    ("block", "message"),
+    [
+        ([], "dashboard must be an object"),
+        ({"grafana_path": "d/x"}, 'grafana_path must be a path starting with "/"'),
+        ({"tabs": []}, "tabs must be a non-empty list"),
+        ({"tabs": ["grafana", "charts"]}, "unknown dashboard.tabs ['charts']"),
+        ({"brand": "acme"}, "dashboard.brand is not a known setting"),
+        ({"theme": "../shared/theme"}, "dashboard.theme must be a directory inside the project"),
+        ({"theme": "/etc/theme"}, "dashboard.theme must be a directory inside the project"),
+    ],
+)
+def test_dashboard_block_errors(block, message):
+    errors = mf.dashboard_errors({"dashboard": block})
+    assert len(errors) == 1 and message in errors[0]
+
+
+def test_dashboard_theme_must_exist(tmp_path):
+    data = _make_template_project(tmp_path, dashboard={"theme": "theme"})
+    _, errors = validate_project(tmp_path, data)
+    assert errors == ["Missing file: theme/brand.json (.p4n4.json dashboard.theme)"]
+
+    (tmp_path / "theme").mkdir()
+    (tmp_path / "theme" / "brand.json").write_text("{not json")
+    _, errors = validate_project(tmp_path, data)
+    assert len(errors) == 1 and "theme/brand.json is not valid JSON" in errors[0]
+
+    (tmp_path / "theme" / "brand.json").write_text(
+        json.dumps({"id": "verdant", "appName": "Verdant"})
+    )
+    passed, errors = validate_project(tmp_path, data)
+    assert errors == []
+    assert "theme/brand.json: dashboard theme" in passed
+
+
+# ── dashboard layer ───────────────────────────────────────────────────────────
+
+
+def test_dashboard_layer_copies_only_its_compose_file():
+    layer = LAYERS["dashboard"]
+    assert layer.copy_paths == ("docker-compose.yml",)
+    assert layer.repo_url.endswith("/p4n4-dashboard.git")
+
+
+def test_dashboard_layer_scaffolds_and_validates(tmp_path):
+    from p4n4_lib.scaffold import scaffold_layer
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "docker-compose.yml").write_text("services: {}\n")
+    (src / ".env.example").write_text("DASHBOARD_VERSION=1.1.0\nDASHBOARD_PORT=8088\nBRAND=p4n4\n")
+    project = tmp_path / "proj"
+    (project / "dashboard").mkdir(parents=True)
+    scaffold_layer(project / "dashboard", LAYERS["dashboard"], {}, source=src)
+    assert envutil.load(project / "dashboard" / ".env")["DASHBOARD_PORT"] == "8088"
+
+    data = mf.create("proj", ["iot", "dashboard"])
+    for rel in LAYERS["iot"].required_files:
+        (project / "iot" / rel).parent.mkdir(parents=True, exist_ok=True)
+        (project / "iot" / rel).touch()
+    envutil.write(project / "iot" / ".env", {k: "x" for k in LAYERS["iot"].required_env_keys})
+    passed, errors = validate_project(project, data)
+    assert errors == []
+    assert "dashboard/.env: all required keys present" in passed
+    assert layout.compose_dirs(project, data["layers"])[-1] == ("dashboard", project / "dashboard")

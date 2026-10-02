@@ -16,6 +16,14 @@ ROTATABLE_KEYS = (
     "N8N_ENCRYPTION_KEY",
 )
 
+# Secrets issued by someone else (an external broker's credentials): shown
+# masked alongside the others, never rotated or generated, since a new value
+# would no longer match the remote side
+EXTERNAL_KEYS = (
+    # IoT layer: bridge to an external MQTT broker
+    "MQTT_REMOTE_PASSWORD",
+)
+
 
 def token(n: int = 32) -> str:
     """Return a hex token from n random bytes (2n characters)."""

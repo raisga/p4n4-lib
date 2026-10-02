@@ -10,12 +10,12 @@ Presentation (prompts, tables, colors) stays in the clients.
 
 | Module | Purpose |
 |--------|---------|
-| `p4n4_lib.manifest` | `.p4n4.json` manifest: find (walk-up), load, save, create |
+| `p4n4_lib.manifest` | `.p4n4.json` manifest: find (walk-up), load, save, create, and checks for the optional `dashboard` block |
 | `p4n4_lib.env` | Dotenv read/write, template-preserving writes |
-| `p4n4_lib.layers` | Layer registry: repo URLs, copy paths, required files/env keys per layer |
+| `p4n4_lib.layers` | Layer registry: repo URLs, copy paths, required files/env keys per layer (`iot`, `ai`, `edge`, `dashboard`) |
 | `p4n4_lib.layout` | Project layout: flat for single-layer projects, per-layer subdirectories for multi-layer |
 | `p4n4_lib.scaffold` | Fetch stack sources (local path or shallow clone) and copy into a project |
-| `p4n4_lib.validate` | Pure project validation returning (passed, errors) check lists |
+| `p4n4_lib.validate` | Pure project validation returning (passed, errors) check lists; template projects are checked against their `.env.example` instead of the base stack |
 | `p4n4_lib.secrets` | Token generation and the rotatable-key policy |
 | `p4n4_lib.compose` | Docker Compose subprocess wrappers (`up`, `down`, `ps`, `logs`) |
 
