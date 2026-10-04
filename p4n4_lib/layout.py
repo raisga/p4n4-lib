@@ -8,6 +8,7 @@ creates, so their compose files must not be merged).
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
@@ -25,6 +26,18 @@ def ordered(names: Iterable[str]) -> list[str]:
 def layer_dir(project_dir: Path, layers: Sequence[str], name: str) -> Path:
     """Directory a layer's stack files live in."""
     return project_dir / name if len(layers) > 1 else project_dir
+
+
+def compose_project_name(project: str, layers: Sequence[str], name: str) -> str:
+    """
+    Compose project name for a layer: the project name for single-layer projects,
+    `<project>-<layer>` for multi-layer ones. Without it, Compose names a layer after
+    its directory (`iot`, `ai`, ...), so every multi-layer project on a host would
+    share the same volumes. Lowercased, with characters Compose rejects replaced by `-`.
+    """
+    raw = project if len(layers) <= 1 else f"{project}-{name}"
+    cleaned = re.sub(r"[^a-z0-9_-]+", "-", raw.lower()).lstrip("-_")
+    return cleaned or "p4n4"
 
 
 def compose_dirs(project_dir: Path, layers: Sequence[str]) -> list[tuple[str, Path]]:

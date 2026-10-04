@@ -155,6 +155,32 @@ def test_compose_dirs_skips_unscaffolded_layers(tmp_path):
     assert layout.compose_dirs(tmp_path, ["iot", "edge"]) == [("iot", tmp_path / "iot")]
 
 
+@pytest.mark.parametrize(
+    ("project", "layers", "name", "expected"),
+    [
+        ("demo", ["iot"], "iot", "demo"),
+        ("demo", ["iot", "ai"], "ai", "demo-ai"),
+        ("My.Greenhouse 2", ["iot", "dashboard"], "dashboard", "my-greenhouse-2-dashboard"),
+        ("_lab", ["iot"], "iot", "lab"),
+        ("...", ["iot"], "iot", "p4n4"),
+    ],
+)
+def test_compose_project_name(project, layers, name, expected):
+    assert layout.compose_project_name(project, layers, name) == expected
+
+
+def test_env_set_value_replaces_or_appends(tmp_path):
+    path = tmp_path / ".env"
+    path.write_text("# COMPOSE_PROJECT_NAME=commented\nA=1\n")
+    envutil.set_value(path, "COMPOSE_PROJECT_NAME", "demo-iot", comment="line one\nline two")
+    assert path.read_text().endswith(
+        "A=1\n\n# line one\n# line two\nCOMPOSE_PROJECT_NAME=demo-iot\n"
+    )
+    envutil.set_value(path, "A", "two words")
+    assert envutil.load(path) == {"A": "two words", "COMPOSE_PROJECT_NAME": "demo-iot"}
+    assert path.read_text().startswith("# COMPOSE_PROJECT_NAME=commented\n")
+
+
 # ── scaffold ──────────────────────────────────────────────────────────────────
 
 
@@ -167,6 +193,40 @@ def test_fetch_source_local_path(tmp_path):
 def test_fetch_source_missing_path(tmp_path):
     with pytest.raises(ScaffoldError, match="does not exist"):
         fetch_source(LAYERS["iot"], tmp_path / "nope")
+
+
+def test_fetch_source_clones_with_lf_line_endings(monkeypatch):
+    import subprocess
+
+    from p4n4_lib import scaffold
+
+    calls = []
+
+    def run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(scaffold.subprocess, "run", run)
+    src, tmpdir = fetch_source(LAYERS["iot"])
+    try:
+        assert calls[0][:2] == ["git", "clone"]
+        assert ["--config", "core.autocrlf=false"] == calls[0][4:6]
+    finally:
+        scaffold.shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def test_env_and_manifest_written_as_utf8_lf(tmp_path):
+    env_path = tmp_path / ".env"
+    envutil.write(env_path, {"GRAFANA_PASSWORD": "pässwörd"})
+    raw = env_path.read_bytes()
+    assert b"\r\n" not in raw
+    assert "pässwörd".encode() in raw
+    assert envutil.load(env_path)["GRAFANA_PASSWORD"] == "pässwörd"
+
+    path = tmp_path / mf.MANIFEST_FILE
+    mf.save(path, mf.create("próject", ["iot"]))
+    assert b"\r\n" not in path.read_bytes()
+    assert mf.load(path)["project"] == "próject"
 
 
 # ── validate ──────────────────────────────────────────────────────────────────
@@ -348,6 +408,24 @@ def test_dashboard_layer_copies_only_its_compose_file():
     layer = LAYERS["dashboard"]
     assert layer.copy_paths == ("docker-compose.yml",)
     assert layer.repo_url.endswith("/p4n4-dashboard.git")
+
+
+def test_scaffold_sets_compose_project_name(tmp_path):
+    from p4n4_lib.scaffold import scaffold_layer
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "docker-compose.yml").write_text("services: {}\n")
+    (src / ".env.example").write_text("DASHBOARD_PORT=8088\n")
+    dest = tmp_path / "proj" / "dashboard"
+    dest.mkdir(parents=True)
+    scaffold_layer(dest, LAYERS["dashboard"], {}, source=src, compose_project_name="proj-dashboard")
+    env = envutil.load(dest / ".env")
+    assert env == {"DASHBOARD_PORT": "8088", "COMPOSE_PROJECT_NAME": "proj-dashboard"}
+
+    # Without the argument, nothing is added (callers that manage names themselves)
+    scaffold_layer(tmp_path, LAYERS["dashboard"], {}, source=src)
+    assert "COMPOSE_PROJECT_NAME" not in envutil.load(tmp_path / ".env")
 
 
 def test_dashboard_layer_scaffolds_and_validates(tmp_path):

@@ -51,6 +51,22 @@ def test_falls_back_to_standalone(monkeypatch, tmp_path):
     assert calls[-2:] == [["docker-compose", "pull"], ["docker-compose", "up", "-d"]]
 
 
+def test_down_enables_every_profile(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(compose.shutil, "which", _which({"docker", "docker-compose"}))
+    monkeypatch.setattr(compose.subprocess, "run", _fake_run(calls, plugin_ok=True))
+    compose.down(tmp_path, volumes=True)
+    assert calls[-1] == ["docker", "compose", "--profile", "*", "down", "-v"]
+
+
+def test_down_standalone_has_no_profile_flag(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(compose.shutil, "which", _which({"docker", "docker-compose"}))
+    monkeypatch.setattr(compose.subprocess, "run", _fake_run(calls, plugin_ok=False))
+    compose.down(tmp_path)
+    assert calls[-1] == ["docker-compose", "down"]
+
+
 def test_missing_compose_raises(monkeypatch):
     monkeypatch.setattr(compose.shutil, "which", _which({"docker"}))
     monkeypatch.setattr(compose.subprocess, "run", _fake_run([], plugin_ok=False))

@@ -24,7 +24,9 @@ class Layer:
         return f"p4n4-{self.name}-"
 
 
-_sources: dict = yaml.safe_load((Path(__file__).parent / "sources.yaml").read_text())
+_sources: dict = yaml.safe_load(
+    (Path(__file__).parent / "sources.yaml").read_text(encoding="utf-8")
+)
 
 LAYERS: dict[str, Layer] = {
     "iot": Layer(

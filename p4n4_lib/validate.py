@@ -97,7 +97,7 @@ def _check_theme(theme_dir: Path, label: str, errors: list[str]) -> None:
         errors.append(f"Missing file: {label}/brand.json (.p4n4.json dashboard.theme)")
         return
     try:
-        data = json.loads(brand.read_text())
+        data = json.loads(brand.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         errors.append(f"{label}/brand.json is not valid JSON: {exc}")
         return

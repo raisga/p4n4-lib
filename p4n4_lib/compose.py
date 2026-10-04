@@ -66,7 +66,11 @@ def up(cwd: Path, build: bool = False, pull: bool = False, detach: bool = True) 
 
 
 def down(cwd: Path, volumes: bool = False) -> int:
-    args = ["down"]
+    # Stack services sit in Compose profiles, and `down` only stops the ones
+    # in active profiles; enable them all so services started by name (or
+    # dropped from COMPOSE_PROFILES since) are stopped too. docker-compose v1
+    # has no "*" profile.
+    args = ["down"] if _is_legacy() else ["--profile", "*", "down"]
     if volumes:
         args.append("-v")
     return _base(args, cwd)

@@ -29,8 +29,10 @@ def fetch_source(layer: Layer, source: str | Path | None = None) -> tuple[Path, 
         return path, None
 
     tmp = tempfile.mkdtemp(prefix=layer.clone_prefix)
+    # core.autocrlf=false: Git for Windows defaults to CRLF checkouts, which
+    # break shell scripts run inside the Linux containers ('bash\r').
     result = subprocess.run(
-        ["git", "clone", "--depth", "1", layer.repo_url, tmp],
+        ["git", "clone", "--depth", "1", "--config", "core.autocrlf=false", layer.repo_url, tmp],
         capture_output=True,
         text=True,
     )
@@ -48,8 +50,13 @@ def scaffold_layer(
     layer: Layer,
     env_values: dict[str, str],
     source: str | Path | None = None,
+    compose_project_name: str | None = None,
 ) -> None:
-    """Copy a layer's files into project_dir and write its .env."""
+    """Copy a layer's files into project_dir and write its .env.
+
+    With `compose_project_name`, the .env also sets COMPOSE_PROJECT_NAME, so the
+    layer's containers and volumes are namespaced per project (see
+    `layout.compose_project_name`)."""
     src, tmpdir = fetch_source(layer, source)
     try:
         for name in layer.copy_paths:
@@ -70,6 +77,15 @@ def scaffold_layer(
 
         # Write .env: values override the .env.example template from the repo
         envutil.write(project_dir / ".env", env_values, template_path=src / ".env.example")
+        if compose_project_name:
+            envutil.set_value(
+                project_dir / ".env",
+                "COMPOSE_PROJECT_NAME",
+                compose_project_name,
+                comment="Compose project name, set by p4n4 init: keeps this project's\n"
+                "containers' volumes apart from other projects'. Changing it on an\n"
+                "existing project switches to new, empty volumes.",
+            )
     finally:
         if tmpdir:
             shutil.rmtree(tmpdir, ignore_errors=True)
