@@ -16,6 +16,11 @@ from p4n4_lib.layers import LAYERS
 
 COMPOSE_FILE = "docker-compose.yml"
 
+# The network every stack joins. p4n4-iot creates it (with this subnet); the
+# other stacks declare it external, so it must exist before they start.
+NETWORK = "p4n4-net"
+NETWORK_SUBNET = "172.20.0.0/16"
+
 
 def ordered(names: Iterable[str]) -> list[str]:
     """Sort layer names into dependency order (iot before ai before edge)."""

@@ -9,6 +9,41 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `.p4n4.json` `dashboard.cameras`: the streams p4n4-dashboard's Video tab shows, each
+  `{id, name}` plus an absolute `url` or a `port` and `path` on the connected host.
+  `manifest.dashboard_errors` validates them (`manifest.camera_errors`).
+- `compose.name_conflicts(*dirs)`: the containers holding a `container_name` the stacks
+  in `dirs` set that belong to another Compose project (or to none), so callers can
+  explain the clash before `up` fails with Docker's "container name is already in use".
+  It renders the stacks' configs concurrently and inspects every name in one call, so a
+  multi-layer project takes about as long to check as one stack.
+- `compose.host_projects()`: every Compose project on the host with a `p4n4-*` container,
+  from any directory, ordered so projects owning a network others join stop last. It
+  raises `compose.DockerError` when docker is missing or `docker ps` fails, rather than
+  reporting an empty host.
+  `compose.down_project()` stops one by name (`docker compose -p <name> down`), so it
+  works even when the project's compose files have moved or are gone.
+- `secrets.SETUP_KEYS`: the secrets services keep from first setup (`INFLUXDB_PASSWORD`,
+  `INFLUXDB_TOKEN`, `GRAFANA_PASSWORD`, `N8N_ENCRYPTION_KEY`, `N8N_BASIC_AUTH_PASSWORD`),
+  and `secrets.SECRET_KEYS`, every secret p4n4 generates.
+- `compose.ensure_network(name, subnet)`: creates the shared bridge network when it's
+  missing, labelled as Compose labels its own networks, so p4n4-iot adopts it instead of
+  failing with "incorrect label". `layout.NETWORK` and `layout.NETWORK_SUBNET` name
+  `p4n4-net` and its subnet.
+
+### Changed
+
+- `secrets.ROTATABLE_KEYS` holds only the secrets services read at every start
+  (`NODE_RED_PASSWORD`, `LETTA_SERVER_PASSWORD`). The setup-only ones moved to
+  `SETUP_KEYS`: a new value in `.env` alone locked clients out of InfluxDB and Grafana,
+  and stopped n8n from starting.
+- `compose.ps` passes `--all`, so a stopped or crashed service is listed with its state
+  and exit code instead of disappearing, and raises `compose.DockerError` when the
+  command fails (daemon down, invalid compose file) instead of returning an empty list.
+  With Compose v1, its entries now carry `ID` and `ExitCode` as v2's do.
+
 ## [0.2.0] - 2026-10-03
 
 First release on PyPI. There is no 0.1.0: the package was versioned 0.1.0 while it lived

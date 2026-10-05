@@ -97,8 +97,16 @@ def test_token_length_and_uniqueness():
 
 
 def test_external_keys_are_never_rotated():
-    assert not set(secretutil.EXTERNAL_KEYS) & set(secretutil.ROTATABLE_KEYS)
+    assert not set(secretutil.EXTERNAL_KEYS) & set(secretutil.SECRET_KEYS)
     assert "MQTT_REMOTE_PASSWORD" in secretutil.EXTERNAL_KEYS
+
+
+def test_setup_only_secrets_are_never_rotated():
+    # Their services keep the first value: rotating .env alone breaks them
+    assert not set(secretutil.SETUP_KEYS) & set(secretutil.ROTATABLE_KEYS)
+    for key in ("INFLUXDB_TOKEN", "INFLUXDB_PASSWORD", "GRAFANA_PASSWORD", "N8N_ENCRYPTION_KEY"):
+        assert key in secretutil.SETUP_KEYS
+    assert set(secretutil.SECRET_KEYS) == {*secretutil.ROTATABLE_KEYS, *secretutil.SETUP_KEYS}
 
 
 def test_rotation_value_sizes():
@@ -376,11 +384,57 @@ def test_dashboard_block_valid(tmp_path):
         ({"brand": "acme"}, "dashboard.brand is not a known setting"),
         ({"theme": "../shared/theme"}, "dashboard.theme must be a directory inside the project"),
         ({"theme": "/etc/theme"}, "dashboard.theme must be a directory inside the project"),
+        ({"cameras": []}, "dashboard.cameras must be a non-empty list"),
+        ({"cameras": ["floor"]}, "dashboard.cameras[0] must be an object"),
+        (
+            {"cameras": [{"id": "Floor 1", "name": "F", "port": 1984}]},
+            "cameras[0].id must be lowercase",
+        ),
+        (
+            {"cameras": [{"id": "a", "name": "A", "port": 1}, {"id": "a", "name": "B", "port": 2}]},
+            "'a' is used twice",
+        ),
+        (
+            {"cameras": [{"id": "a", "name": " ", "port": 1984}]},
+            "cameras[0].name must be a non-empty string",
+        ),
+        ({"cameras": [{"id": "a", "name": "A"}]}, "needs either url or port"),
+        (
+            {"cameras": [{"id": "a", "name": "A", "url": "http://cam", "port": 1}]},
+            "needs either url or port",
+        ),
+        (
+            {"cameras": [{"id": "a", "name": "A", "url": "rtsp://cam/s"}]},
+            "url must be an absolute http(s) URL",
+        ),
+        (
+            {"cameras": [{"id": "a", "name": "A", "url": "http://cam", "path": "/s"}]},
+            "path only goes with port",
+        ),
+        ({"cameras": [{"id": "a", "name": "A", "port": 70000}]}, "port must be a TCP port"),
+        ({"cameras": [{"id": "a", "name": "A", "port": True}]}, "port must be a TCP port"),
+        (
+            {"cameras": [{"id": "a", "name": "A", "port": 1984, "path": "stream"}]},
+            'path must start with "/"',
+        ),
+        (
+            {"cameras": [{"id": "a", "name": "A", "port": 1984, "fps": 5}]},
+            "cameras[0].fps is not a known setting",
+        ),
     ],
 )
 def test_dashboard_block_errors(block, message):
     errors = mf.dashboard_errors({"dashboard": block})
     assert len(errors) == 1 and message in errors[0]
+
+
+def test_dashboard_cameras_valid():
+    cameras = [
+        {"id": "floor", "name": "Sales floor", "port": 1984, "path": "/api/stream.mjpeg?src=floor"},
+        {"id": "door", "name": "Door", "url": "https://cams.example.com/door.mjpeg"},
+        {"id": "root", "name": "Root", "port": 8081},
+    ]
+    assert mf.dashboard_errors({"dashboard": {"tabs": ["video"], "cameras": cameras}}) == []
 
 
 def test_dashboard_theme_must_exist(tmp_path):

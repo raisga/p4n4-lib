@@ -25,7 +25,7 @@ Stack repo URLs live in `p4n4_lib/sources.yaml`.
 
 ```bash
 pip install p4n4-lib
-pip install -e path/to/core/lib           # monorepo development
+pip install -e path/to/lib           # monorepo development
 ```
 
 See [CHANGELOG.md](https://github.com/raisga/p4n4-lib/blob/main/CHANGELOG.md) for release notes.
