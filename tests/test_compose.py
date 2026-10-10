@@ -363,11 +363,15 @@ def test_down_project_v1_uses_the_project_files(monkeypatch, tmp_path):
     assert calls[-1] == ["docker", "rm", "-f", "p4n4-x"]
 
 
-def _network_run(calls, exists, create_rc=0):
+def _network_run(calls, exists, create_rc=0, label="p4n4-net", attached=0):
     def run(cmd, **kwargs):
         calls.append(cmd)
         if cmd[:3] == ["docker", "network", "inspect"]:
-            return subprocess.CompletedProcess(cmd, 0 if exists else 1, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                cmd, 0 if exists else 1, stdout=f"{label} {attached}\n", stderr=""
+            )
+        if cmd[:3] == ["docker", "network", "rm"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         return subprocess.CompletedProcess(cmd, create_rc, stdout="", stderr="subnet overlaps")
 
     return run
@@ -396,3 +400,25 @@ def test_ensure_network_raises_when_create_fails(monkeypatch):
     monkeypatch.setattr(compose.subprocess, "run", _network_run([], exists=False, create_rc=1))
     with pytest.raises(compose.DockerError, match="subnet overlaps"):
         compose.ensure_network("p4n4-net", "172.20.0.0/16")
+
+
+def test_ensure_network_recreates_an_unlabelled_unused_one(monkeypatch):
+    calls = []
+    run = _network_run(calls, exists=True, label="<no value>", attached=0)
+    monkeypatch.setattr(compose.subprocess, "run", run)
+    assert compose.ensure_network("p4n4-net", "172.20.0.0/16") is True
+    assert [c[:3] for c in calls] == [
+        ["docker", "network", "inspect"],
+        ["docker", "network", "rm"],
+        ["docker", "network", "create"],
+    ]
+    assert "com.docker.compose.network=p4n4-net" in calls[-1]
+
+
+def test_ensure_network_keeps_an_unlabelled_one_in_use(monkeypatch):
+    # Removing it would cut the running stacks off from each other
+    calls = []
+    run = _network_run(calls, exists=True, label="<no value>", attached=3)
+    monkeypatch.setattr(compose.subprocess, "run", run)
+    assert compose.ensure_network("p4n4-net", "172.20.0.0/16") is False
+    assert [c[:3] for c in calls] == [["docker", "network", "inspect"]]

@@ -32,6 +32,9 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   missing, labelled as Compose labels its own networks, so p4n4-iot adopts it instead of
   failing with "incorrect label". `layout.NETWORK` and `layout.NETWORK_SUBNET` name
   `p4n4-net` and its subnet.
+  A `p4n4-net` made without the label (a plain `docker network create`) is recreated
+  with it while no container uses it; in use, it's left alone, since removing it would
+  cut the running stacks off from each other.
 
 ### Changed
 

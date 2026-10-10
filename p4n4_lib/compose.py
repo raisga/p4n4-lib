@@ -99,23 +99,44 @@ def _ps_run(cmd: list[str], cwd: Path) -> str:
     return result.stdout
 
 
+_NETWORK_LABEL = "com.docker.compose.network"
+
+
 def ensure_network(name: str, subnet: str) -> bool:
     """
     Create the shared bridge network `name` when it doesn't exist; True if it was
     created. Stacks that declare it external can't start without it. It carries the
     label Compose gives a network it creates, so a stack that declares it itself
     (p4n4-iot) adopts it instead of refusing it ("incorrect label").
+
+    A network of that name without the label (made by a plain `docker network
+    create`) is recreated with it, but only while no container uses it: removing it
+    under running stacks would cut them off (their service-name aliases, such as
+    `influxdb`, would stop resolving). In use, it's left for Compose to report.
     """
     try:
         inspect = subprocess.run(
-            ["docker", "network", "inspect", name], capture_output=True, text=True, check=False
+            [
+                *("docker", "network", "inspect", name, "--format"),
+                f'{{{{index .Labels "{_NETWORK_LABEL}"}}}} {{{{len .Containers}}}}',
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if inspect.returncode == 0:
-            return False
+            label, _, attached = inspect.stdout.strip().rpartition(" ")
+            if label == name or attached != "0":
+                return False
+            removed = subprocess.run(
+                ["docker", "network", "rm", name], capture_output=True, text=True, check=False
+            )
+            if removed.returncode != 0:
+                return False
         create = subprocess.run(
             [
                 *("docker", "network", "create", "--driver", "bridge", "--subnet", subnet),
-                *("--label", f"com.docker.compose.network={name}", name),
+                *("--label", f"{_NETWORK_LABEL}={name}", name),
             ],
             capture_output=True,
             text=True,
