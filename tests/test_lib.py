@@ -398,10 +398,19 @@ def test_dashboard_block_valid(tmp_path):
             {"cameras": [{"id": "a", "name": " ", "port": 1984}]},
             "cameras[0].name must be a non-empty string",
         ),
-        ({"cameras": [{"id": "a", "name": "A"}]}, "needs either url or port"),
+        ({"cameras": [{"id": "a", "name": "A"}]}, "needs one of url, port"),
         (
             {"cameras": [{"id": "a", "name": "A", "url": "http://cam", "port": 1}]},
-            "needs either url or port",
+            "needs one of url, port",
+        ),
+        (
+            {"cameras": [{"id": "a", "name": "A", "device": "back", "port": 1}]},
+            "needs one of url, port",
+        ),
+        ({"cameras": [{"id": "a", "name": "A", "device": "side"}]}, 'device must be "back" or "front"'),
+        (
+            {"cameras": [{"id": "a", "name": "A", "device": "back", "path": "/s"}]},
+            "path only goes with port",
         ),
         (
             {"cameras": [{"id": "a", "name": "A", "url": "rtsp://cam/s"}]},
@@ -433,6 +442,8 @@ def test_dashboard_cameras_valid():
         {"id": "floor", "name": "Sales floor", "port": 1984, "path": "/api/stream.mjpeg?src=floor"},
         {"id": "door", "name": "Door", "url": "https://cams.example.com/door.mjpeg"},
         {"id": "root", "name": "Root", "port": 8081},
+        {"id": "dashcam", "name": "Dash cam", "device": "back"},
+        {"id": "pilot", "name": "Pilot cam", "device": "front"},
     ]
     assert mf.dashboard_errors({"dashboard": {"tabs": ["video"], "cameras": cameras}}) == []
 

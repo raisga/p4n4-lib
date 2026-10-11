@@ -54,9 +54,11 @@ def dashboard_errors(data: dict) -> list[str]:
       theme the project's dashboard is built with (``brand.json``, icon,
       fonts). Installed with ``dart run tool/brand.dart install <project>``.
     - ``cameras``: streams the Video tab shows until the user saves their own,
-      each ``{"id", "name"}`` plus either an absolute http(s) ``url`` or a
+      each ``{"id", "name"}`` plus one of: an absolute http(s) ``url``; a
       ``port`` and ``path`` on the host the dashboard is connected to
-      (e.g. go2rtc's ``{"port": 1984, "path": "/api/stream.mjpeg?src=floor"}``).
+      (e.g. go2rtc's ``{"port": 1984, "path": "/api/stream.mjpeg?src=floor"}``);
+      or a ``device`` camera, ``"back"`` or ``"front"``, of the phone or tablet
+      the dashboard runs on.
 
     Only the block's shape is checked here; ``validate.validate_project``
     checks that the theme directory exists.
@@ -111,7 +113,7 @@ def camera_errors(cameras: object) -> list[str]:
         if not isinstance(camera, dict):
             errors.append(f"{where} must be an object")
             continue
-        for key in sorted(set(camera) - {"id", "name", "url", "port", "path"}):
+        for key in sorted(set(camera) - {"id", "name", "url", "port", "path", "device"}):
             errors.append(f"{where}.{key} is not a known setting")
         cam_id, name = camera.get("id"), camera.get("name")
         if not (isinstance(cam_id, str) and re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", cam_id)):
@@ -123,8 +125,14 @@ def camera_errors(cameras: object) -> list[str]:
         if not (isinstance(name, str) and name.strip()):
             errors.append(f"{where}.name must be a non-empty string")
         url, port, path = camera.get("url"), camera.get("port"), camera.get("path")
-        if (url is None) == (port is None):
-            errors.append(f"{where} needs either url or port (with an optional path)")
+        device = camera.get("device")
+        if [url, port, device].count(None) != 2:
+            errors.append(f"{where} needs one of url, port (with an optional path) or device")
+        elif device is not None:
+            if device not in ("back", "front"):
+                errors.append(f'{where}.device must be "back" or "front"')
+            if path is not None:
+                errors.append(f"{where}.path only goes with port")
         elif url is not None:
             if not (isinstance(url, str) and re.match(r"^https?://[^/\s]+", url)):
                 errors.append(f"{where}.url must be an absolute http(s) URL")
