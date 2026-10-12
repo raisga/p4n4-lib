@@ -437,6 +437,32 @@ def test_dashboard_block_errors(block, message):
     assert len(errors) == 1 and message in errors[0]
 
 
+@pytest.mark.parametrize(
+    ("feed", "message"),
+    [
+        ("http://x/feed", "dashboard.feed must be an object"),
+        ({}, "dashboard.feed.url must be an absolute http(s) URL"),
+        ({"url": "/api/v1/feed"}, "dashboard.feed.url must be an absolute http(s) URL"),
+        ({"url": "http://x/feed", "title": "Feed"}, "feed.title is not a known setting"),
+        ({"url": "http://x/feed", "token": "secret"}, 'feed.token must be {"layer", "env"}'),
+        ({"url": "http://x/feed", "token": {"layer": "iot", "env": "a-b"}}, "token.env must be"),
+        ({"url": "http://x/feed", "token": {"layer": " ", "env": "TOKEN"}}, "token.layer must be"),
+    ],
+)
+def test_dashboard_feed_errors(feed, message):
+    errors = mf.dashboard_errors({"dashboard": {"feed": feed}})
+    assert len(errors) == 1 and message in errors[0]
+
+
+def test_dashboard_feed_valid():
+    feed = {
+        "url": "http://localhost:8090/api/v1/feed",
+        "token": {"layer": "iot", "env": "INGEST_READ_TOKEN"},
+    }
+    assert mf.dashboard_errors({"dashboard": {"tabs": ["feed"], "feed": feed}}) == []
+    assert mf.dashboard_errors({"dashboard": {"feed": {"url": "https://x.example/feed"}}}) == []
+
+
 def test_dashboard_cameras_valid():
     cameras = [
         {"id": "floor", "name": "Sales floor", "port": 1984, "path": "/api/stream.mjpeg?src=floor"},

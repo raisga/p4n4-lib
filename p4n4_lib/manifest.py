@@ -11,7 +11,7 @@ MANIFEST_FILE = ".p4n4.json"
 SCHEMA_VERSION = 1
 
 # Tabs p4n4-dashboard can show; the optional "dashboard" block narrows them
-DASHBOARD_TABS = ("services", "edge", "agent", "grafana", "video")
+DASHBOARD_TABS = ("services", "edge", "agent", "grafana", "video", "feed")
 
 
 def find(start: Path | None = None) -> Path | None:
@@ -59,6 +59,11 @@ def dashboard_errors(data: dict) -> list[str]:
       (e.g. go2rtc's ``{"port": 1984, "path": "/api/stream.mjpeg?src=floor"}``);
       or a ``device`` camera, ``"back"`` or ``"front"``, of the phone or tablet
       the dashboard runs on.
+    - ``feed``: where the Feed tab's items come from, ``{"url"}``: an absolute
+      http(s) URL that p4n4-api reads (``GET``) and posts actions to
+      (``POST <url>/<id>/action``), in p4n4-dashboard's feed contract. An
+      optional ``token``, ``{"layer", "env"}``, names the layer ``.env``
+      variable p4n4-api sends as a bearer token, so it never reaches a browser.
 
     Only the block's shape is checked here; ``validate.validate_project``
     checks that the theme directory exists.
@@ -70,7 +75,7 @@ def dashboard_errors(data: dict) -> list[str]:
         return [".p4n4.json: dashboard must be an object"]
 
     errors = []
-    for key in sorted(set(block) - {"grafana_path", "tabs", "theme", "cameras"}):
+    for key in sorted(set(block) - {"grafana_path", "tabs", "theme", "cameras", "feed"}):
         errors.append(f".p4n4.json: dashboard.{key} is not a known setting")
 
     path = block.get("grafana_path")
@@ -100,6 +105,32 @@ def dashboard_errors(data: dict) -> list[str]:
 
     if "cameras" in block:
         errors.extend(camera_errors(block["cameras"]))
+    if "feed" in block:
+        errors.extend(feed_errors(block["feed"]))
+    return errors
+
+
+def feed_errors(feed: object) -> list[str]:
+    """Problems with ``dashboard.feed`` (see :func:`dashboard_errors`)."""
+    where = ".p4n4.json: dashboard.feed"
+    if not isinstance(feed, dict):
+        return [f"{where} must be an object"]
+    errors = [
+        f"{where}.{key} is not a known setting" for key in sorted(set(feed) - {"url", "token"})
+    ]
+    url = feed.get("url")
+    if not (isinstance(url, str) and re.match(r"^https?://[^/\s]+", url)):
+        errors.append(f"{where}.url must be an absolute http(s) URL")
+    token = feed.get("token")
+    if token is not None:
+        if not isinstance(token, dict) or set(token) != {"layer", "env"}:
+            errors.append(f'{where}.token must be {{"layer", "env"}}')
+        elif not (
+            isinstance(token["env"], str) and re.fullmatch(r"[A-Z_][A-Z0-9_]*", token["env"])
+        ):
+            errors.append(f"{where}.token.env must be an environment variable name")
+        elif not (isinstance(token["layer"], str) and token["layer"].strip()):
+            errors.append(f"{where}.token.layer must be a layer name")
     return errors
 
 
