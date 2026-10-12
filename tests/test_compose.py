@@ -186,9 +186,7 @@ def test_name_conflicts_reports_other_projects(monkeypatch, tmp_path):
     monkeypatch.setattr(compose.shutil, "which", _which({"docker"}))
     monkeypatch.setattr(compose.subprocess, "run", _conflict_run(_CONFIG, inspect_out))
     assert compose.name_conflicts(tmp_path) == [
-        compose.NameConflict(
-            "p4n4-influxdb", "running", "other-iot", Path("/projects/other/iot")
-        ),
+        compose.NameConflict("p4n4-influxdb", "running", "other-iot", Path("/projects/other/iot")),
         compose.NameConflict("p4n4-mqtt", "exited", None, None),
     ]
 

@@ -9,11 +9,18 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-12
+
 ### Added
 
 - `.p4n4.json` `dashboard.cameras`: the streams p4n4-dashboard's Video tab shows, each
-  `{id, name}` plus an absolute `url` or a `port` and `path` on the connected host.
-  `manifest.dashboard_errors` validates them (`manifest.camera_errors`).
+  `{id, name}` plus one of an absolute `url`, a `port` and `path` on the connected host,
+  or a `device` camera (`"back"` or `"front"`) of the phone or tablet the dashboard runs
+  on. `manifest.dashboard_errors` validates them (`manifest.camera_errors`).
+- `.p4n4.json` `dashboard.feed`: where p4n4-dashboard's new Feed tab gets its items,
+  `{url}` with an optional `token` (`{layer, env}`) naming the layer `.env` variable
+  p4n4-api sends as a bearer token. `"feed"` joins `manifest.DASHBOARD_TABS`, and
+  `manifest.feed_errors` validates the block.
 - `compose.name_conflicts(*dirs)`: the containers holding a `container_name` the stacks
   in `dirs` set that belong to another Compose project (or to none), so callers can
   explain the clash before `up` fails with Docker's "container name is already in use".
@@ -93,5 +100,6 @@ only on GitHub, and the first published version is 0.2.0, released together with
   line endings and run inside the Linux containers. `.env` and `.p4n4.json` are read and
   written as UTF-8 with LF line endings instead of the platform defaults.
 
-[Unreleased]: https://github.com/raisga/p4n4-lib/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/raisga/p4n4-lib/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/raisga/p4n4-lib/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/raisga/p4n4-lib/releases/tag/v0.2.0

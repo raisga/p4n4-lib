@@ -407,7 +407,10 @@ def test_dashboard_block_valid(tmp_path):
             {"cameras": [{"id": "a", "name": "A", "device": "back", "port": 1}]},
             "needs one of url, port",
         ),
-        ({"cameras": [{"id": "a", "name": "A", "device": "side"}]}, 'device must be "back" or "front"'),
+        (
+            {"cameras": [{"id": "a", "name": "A", "device": "side"}]},
+            'device must be "back" or "front"',
+        ),
         (
             {"cameras": [{"id": "a", "name": "A", "device": "back", "path": "/s"}]},
             "path only goes with port",
