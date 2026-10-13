@@ -367,8 +367,14 @@ def test_dashboard_block_is_optional():
 
 
 def test_dashboard_block_valid(tmp_path):
-    dashboard = {"grafana_path": "/d/p4n4-telemetry/telemetry", "tabs": ["services", "grafana"]}
+    dashboard = {
+        "grafana_path": "/d/p4n4-telemetry/telemetry",
+        "tabs": ["services", "grafana"],
+        "home": "docs/home.md",
+    }
     data = _make_template_project(tmp_path, dashboard=dashboard)
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "home.md").write_text("# Hello\n")
     passed, errors = validate_project(tmp_path, data)
     assert errors == []
     assert ".p4n4.json: dashboard settings valid" in passed
@@ -384,6 +390,9 @@ def test_dashboard_block_valid(tmp_path):
         ({"brand": "acme"}, "dashboard.brand is not a known setting"),
         ({"theme": "../shared/theme"}, "dashboard.theme must be a directory inside the project"),
         ({"theme": "/etc/theme"}, "dashboard.theme must be a directory inside the project"),
+        ({"home": "../README.md"}, "dashboard.home must be a file inside the project"),
+        ({"home": "/etc/motd"}, "dashboard.home must be a file inside the project"),
+        ({"home": " "}, "dashboard.home must be a file inside the project"),
         ({"cameras": []}, "dashboard.cameras must be a non-empty list"),
         ({"cameras": ["floor"]}, "dashboard.cameras[0] must be an object"),
         (
@@ -475,6 +484,24 @@ def test_dashboard_cameras_valid():
         {"id": "pilot", "name": "Pilot cam", "device": "front"},
     ]
     assert mf.dashboard_errors({"dashboard": {"tabs": ["video"], "cameras": cameras}}) == []
+
+
+def test_dashboard_home_must_exist_when_named(tmp_path):
+    data = _make_template_project(tmp_path, dashboard={"home": "docs/home.md"})
+    passed, errors = validate_project(tmp_path, data)
+    assert errors == ["Missing file: docs/home.md (.p4n4.json dashboard.home)"]
+
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "home.md").write_text("# Hello\n")
+    passed, errors = validate_project(tmp_path, data)
+    assert errors == []
+    assert "docs/home.md: dashboard home page" in passed
+
+
+def test_dashboard_default_home_is_optional(tmp_path):
+    data = _make_template_project(tmp_path, dashboard={"tabs": ["services"]})
+    _, errors = validate_project(tmp_path, data)
+    assert errors == []
 
 
 def test_dashboard_theme_must_exist(tmp_path):

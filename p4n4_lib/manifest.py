@@ -53,6 +53,10 @@ def dashboard_errors(data: dict) -> list[str]:
     - ``theme``: directory, relative to the project, holding the white-label
       theme the project's dashboard is built with (``brand.json``, icon,
       fonts). Installed with ``dart run tool/brand.dart install <project>``.
+    - ``home``: Markdown file, relative to the project, that p4n4-dashboard
+      shows at the top of its Home tab (default ``HOME.md``), or
+      ``HOME.<lang>.md`` beside it for the dashboard's language. Without the
+      setting, a missing or empty file shows nothing.
     - ``cameras``: streams the Video tab shows until the user saves their own,
       each ``{"id", "name"}`` plus one of: an absolute http(s) ``url``; a
       ``port`` and ``path`` on the host the dashboard is connected to
@@ -66,7 +70,7 @@ def dashboard_errors(data: dict) -> list[str]:
       variable p4n4-api sends as a bearer token, so it never reaches a browser.
 
     Only the block's shape is checked here; ``validate.validate_project``
-    checks that the theme directory exists.
+    checks that the theme directory and the home file exist.
     """
     if "dashboard" not in data:
         return []
@@ -75,7 +79,7 @@ def dashboard_errors(data: dict) -> list[str]:
         return [".p4n4.json: dashboard must be an object"]
 
     errors = []
-    for key in sorted(set(block) - {"grafana_path", "tabs", "theme", "cameras", "feed"}):
+    for key in sorted(set(block) - {"grafana_path", "tabs", "theme", "home", "cameras", "feed"}):
         errors.append(f".p4n4.json: dashboard.{key} is not a known setting")
 
     path = block.get("grafana_path")
@@ -83,13 +87,12 @@ def dashboard_errors(data: dict) -> list[str]:
         errors.append('.p4n4.json: dashboard.grafana_path must be a path starting with "/"')
 
     theme = block.get("theme")
-    if theme is not None and not (
-        isinstance(theme, str)
-        and theme.strip()
-        and not PurePosixPath(theme).is_absolute()
-        and ".." not in PurePosixPath(theme).parts
-    ):
+    if theme is not None and not _inside_project(theme):
         errors.append(".p4n4.json: dashboard.theme must be a directory inside the project")
+
+    home = block.get("home")
+    if home is not None and not _inside_project(home):
+        errors.append(".p4n4.json: dashboard.home must be a file inside the project")
 
     tabs = block.get("tabs")
     if tabs is not None:
@@ -108,6 +111,16 @@ def dashboard_errors(data: dict) -> list[str]:
     if "feed" in block:
         errors.extend(feed_errors(block["feed"]))
     return errors
+
+
+def _inside_project(path: object) -> bool:
+    """Whether path is a non-empty relative path that stays inside the project."""
+    return (
+        isinstance(path, str)
+        and bool(path.strip())
+        and not PurePosixPath(path).is_absolute()
+        and ".." not in PurePosixPath(path).parts
+    )
 
 
 def feed_errors(feed: object) -> list[str]:

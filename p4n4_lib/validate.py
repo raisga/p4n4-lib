@@ -37,6 +37,12 @@ def validate_project(project_dir: Path, data: dict) -> tuple[list[str], list[str
             _check_theme(project_dir / theme, theme, errors)
             if len(errors) == errors_before:
                 passed.append(f"{theme}/brand.json: dashboard theme")
+        # The default HOME.md is optional; a file the manifest names should be there.
+        if home := data["dashboard"].get("home"):
+            if (project_dir / home).is_file():
+                passed.append(f"{home}: dashboard home page")
+            else:
+                errors.append(f"Missing file: {home} (.p4n4.json dashboard.home)")
 
     layer_names: list[str] = data.get("layers", [])
     multi = len(layer_names) > 1

@@ -9,6 +9,14 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `.p4n4.json` `dashboard.home`: the Markdown file, relative to the project, that
+  p4n4-dashboard shows at the top of its Home tab (default `HOME.md`).
+  `manifest.dashboard_errors` checks it stays inside the project, and
+  `validate.validate_project` that a file the manifest names exists (the default
+  `HOME.md` stays optional).
+
 ## [0.2.1] - 2026-10-12
 
 ### Added
