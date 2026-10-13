@@ -11,6 +11,12 @@ ROTATABLE_KEYS = (
     "NODE_RED_PASSWORD",
     # AI layer
     "LETTA_SERVER_PASSWORD",
+    # Also stored in n8n's "p4n4 System 1" credential, which `secret rotate` updates,
+    # and in the iot layer for Node-RED's p4n4-system1 subflow (same value)
+    "SYSTEM1_API_KEY",
+    # Channel adapters' token for n8n's operator-intake webhook, stored in n8n's
+    # "p4n4 Operator Intake" credential, which `secret rotate` updates
+    "OPERATOR_INTAKE_TOKEN",
 )
 
 # Secrets their services read only when they first set up their data: InfluxDB

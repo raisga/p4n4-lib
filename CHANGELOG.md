@@ -11,6 +11,20 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `p4n4_lib.system1`, shared by the CLI and the harness for System 1 (laya typed
+  decisions): question-set and evaluation-file loading with the service's shape checks,
+  the §10.2 metrics and gates (`evaluate`, `size_failures`), `fit_thresholds` on a fixed
+  two-thirds split, `fit_calibration` per laya temperature bucket, the decision-log
+  payload and `state_sha256`, `COMPOSE_PROFILES` edits, and `CLIENT`, the script the CLI
+  runs inside the service container so the key never leaves it.
+- `SYSTEM1_API_KEY` joins `secrets.ROTATABLE_KEYS`.
+- `p4n4_lib.system1`, System 1 S2: evaluation lines may carry `lang`, and with two or more
+  languages every gate must pass in each (`QuestionReport.by_lang`); sets may carry
+  per-question `temperatures`, fitted by `fit_question_temperatures`, and the fits undo
+  the `temperature` each answer reports; `feedback_payload` and `feedback_examples` for
+  `system1/feedback/<set>`; `LIST_SETS` for `GET /v1/sets` through `CLIENT`.
+- `OPERATOR_INTAKE_TOKEN` (the n8n operator-intake webhook's token) joins
+  `secrets.ROTATABLE_KEYS`.
 - `.p4n4.json` `dashboard.home`: the Markdown file, relative to the project, that
   p4n4-dashboard shows at the top of its Home tab (default `HOME.md`).
   `manifest.dashboard_errors` checks it stays inside the project, and
