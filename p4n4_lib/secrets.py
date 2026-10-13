@@ -17,6 +17,9 @@ ROTATABLE_KEYS = (
     # Channel adapters' token for n8n's operator-intake webhook, stored in n8n's
     # "p4n4 Operator Intake" credential, which `secret rotate` updates
     "OPERATOR_INTAKE_TOKEN",
+    # Grafana's System 1 drift alerts send it to n8n's system1-drift webhook: the
+    # same value in the iot and ai layers, and n8n's "p4n4 System 1 Alerts" credential
+    "SYSTEM1_ALERT_TOKEN",
 )
 
 # Secrets their services read only when they first set up their data: InfluxDB

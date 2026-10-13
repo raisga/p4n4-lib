@@ -24,6 +24,10 @@ PROFILE = "system1"
 API_KEY = "SYSTEM1_API_KEY"
 # What channel adapters send to n8n's operator-intake webhook
 INTAKE_TOKEN = "OPERATOR_INTAKE_TOKEN"
+# What Grafana's drift alerts send to n8n's system1-drift webhook (iot and ai layers)
+ALERT_TOKEN = "SYSTEM1_ALERT_TOKEN"
+# U7: labels of past events, as points Grafana shows as annotations
+LABEL_MEASUREMENT = "system1_label"
 SERVICE = "system1"
 PULL_SERVICE = "system1-pull"
 MIN_API_KEY_LENGTH = 32
@@ -43,7 +47,10 @@ SET_KEYS = {
     "temperatures",
     "eval",
 }
-EVAL_KEYS = {"min_examples", "no_answer_keys", "gates"}
+EVAL_KEYS = {"min_examples", "no_answer_keys", "gates", "rank"}
+# A ranking question (eval.rank) is a signal to sort by, never a gate on its own answer: it is
+# judged by how well the probability of its positive option ranks the examples (system1.md U6)
+RANK_GATES = {"min_auc": 0.8}
 
 # laya's temperature buckets (laya.common.temp_bucket) and its clamp range
 TEMP_MIN, TEMP_MAX = 0.5, 5.0
@@ -80,8 +87,13 @@ class QuestionSet:
     def no_answer_keys(self, question: str) -> set[str]:
         return set((self.eval.get("no_answer_keys") or {}).get(question, ()))
 
+    def rank_positive(self, question: str) -> str | None:
+        """The option a ranking question sorts by, or None for an ordinary question."""
+        return (self.eval.get("rank") or {}).get(question)
+
     def gates(self, question: str) -> dict[str, float]:
-        return {**DEFAULT_GATES, **((self.eval.get("gates") or {}).get(question) or {})}
+        base = RANK_GATES if self.rank_positive(question) else DEFAULT_GATES
+        return {**base, **((self.eval.get("gates") or {}).get(question) or {})}
 
     @property
     def min_examples(self) -> int:
@@ -171,10 +183,16 @@ def parse_set(name: str, spec: Any, path: Path | None = None) -> QuestionSet:
     for qid, keys in (ev.get("no_answer_keys") or {}).items():
         if qid not in questions or not set(keys) <= set(qset.options(qid)):
             raise QuestionSetError(f"{where}: no_answer_keys for {qid!r} must name its options")
+    rank = ev.get("rank") or {}
+    if not isinstance(rank, dict) or any(
+        q not in questions or k not in qset.options(q) for q, k in rank.items()
+    ):
+        raise QuestionSetError(f"{where}: rank must map questions to one of their options")
     for qid, gates in (ev.get("gates") or {}).items():
-        if qid not in questions or not isinstance(gates, dict) or set(gates) - set(DEFAULT_GATES):
+        allowed = RANK_GATES if qid in rank else DEFAULT_GATES
+        if qid not in questions or not isinstance(gates, dict) or set(gates) - set(allowed):
             raise QuestionSetError(
-                f"{where}: gates for {qid!r} must name a question and use {sorted(DEFAULT_GATES)}"
+                f"{where}: gates for {qid!r} must name a question and use {sorted(allowed)}"
             )
         if not all(_is_number(v) and 0 <= v <= 1 for v in gates.values()):
             raise QuestionSetError(f"{where}: gates for {qid!r} must lie in [0, 1]")
@@ -314,6 +332,9 @@ class QuestionReport:
     failures: list[str]
     # Only when the examples carry two or more languages: the gates then hold in each one
     by_lang: dict[str, Metrics] = field(default_factory=dict)
+    # Ranking questions only: AUC of the positive option's probability, overall and per language
+    auc: float | None = None
+    auc_by_lang: dict[str, float] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -348,6 +369,7 @@ class Report:
                     "by_source": {s: m.as_dict() for s, m in q.by_source.items()},
                     "by_lang": {lang: m.as_dict() for lang, m in q.by_lang.items()},
                     "confusion": q.confusion,
+                    **({"auc": q.auc, "auc_by_lang": q.auc_by_lang} if q.auc is not None else {}),
                 }
                 for q in self.questions
             },
@@ -378,6 +400,8 @@ def size_failures(qset: QuestionSet, examples: list[Example]) -> list[str]:
         ]
         if short:
             out.append(f"{qid}: fewer than {MIN_PER_OPTION} examples for {', '.join(short)}")
+        if qset.rank_positive(qid):
+            continue  # ranked, never answered: no null examples to abstain on
         nulls = sum(e is None for e in scored)
         if nulls < MIN_NULL:
             out.append(f"{qid}: {nulls} null examples, at least {MIN_NULL} are needed")
@@ -399,6 +423,25 @@ def _gate_failures(label: str, m: Metrics, gates: dict[str, float]) -> list[str]
             f"{gates['max_confident_wrong']:.3f}"
         )
     return out
+
+
+def auc(scores: list[tuple[float, bool]]) -> float | None:
+    """Probability that a positive example scores above a negative one (ties count half);
+    None without both."""
+    pos = [s for s, p in scores if p]
+    neg = [s for s, p in scores if not p]
+    if not pos or not neg:
+        return None
+    wins = sum((p > n) + 0.5 * (p == n) for p in pos for n in neg)
+    return round(wins / (len(pos) * len(neg)), 4)
+
+
+def _rank_scores(qid: str, positive: str, pairs: list[tuple[Example, dict]]):
+    return [
+        (a[qid]["probabilities"].get(positive, 0.0), ex.expect[qid] == positive)
+        for ex, a in pairs
+        if ex.expect.get(qid) is not None and qid in a
+    ]
 
 
 def evaluate(
@@ -444,12 +487,31 @@ def evaluate(
         )
         q_gates = qset.gates(qid)
         q_failures = []
-        if gates:
+        positive = qset.rank_positive(qid)
+        q_auc, auc_by_lang = None, {}
+        if positive:
+            q_auc = auc(_rank_scores(qid, positive, pairs))
+            if by_lang:
+                for lang in by_lang:
+                    lang_pairs = [(ex, a) for ex, a in pairs if ex.lang == lang]
+                    auc_by_lang[lang] = auc(_rank_scores(qid, positive, lang_pairs))
+            if gates:
+                for label, value in [(qid, q_auc)] + [
+                    (f"{qid} [{lang}]", v) for lang, v in auc_by_lang.items()
+                ]:
+                    if value is None or value < q_gates["min_auc"]:
+                        shown = "n/a" if value is None else f"{value:.2f}"
+                        q_failures.append(f"{label}: AUC {shown} < {q_gates['min_auc']:.2f}")
+        elif gates:
             q_failures = _gate_failures(qid, m, q_gates)
             for lang, lm in by_lang.items():
                 q_failures += _gate_failures(f"{qid} [{lang}]", lm, q_gates)
         failures.extend(q_failures)
-        reports.append(QuestionReport(qid, m, q_gates, by_source, confusion, q_failures, by_lang))
+        reports.append(
+            QuestionReport(
+                qid, m, q_gates, by_source, confusion, q_failures, by_lang, q_auc, auc_by_lang
+            )
+        )
     lat = latencies_ms or []
     return Report(
         set=qset.name,
@@ -487,6 +549,8 @@ def fit_thresholds(
     held = [pairs[i] for i in held_idx]
     out: dict[str, dict[str, dict]] = {}
     for qid in qset.questions:
+        if qset.rank_positive(qid):
+            continue  # ranked by probability, never thresholded
         gates = qset.gates(qid)
         out[qid] = {}
         for on in THRESHOLD_ON:
@@ -702,6 +766,45 @@ def decision_payload(
         },
         "used": bool(used),
     }
+
+
+# ── Labels for past events (U7) ──────────────────────────────────────────────
+
+
+def _escape_field(value: str) -> str:
+    return '"' + str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\n", " ") + '"'
+
+
+def label_lines(
+    qset: QuestionSet,
+    rows: list[dict],
+    responses: list[dict],
+    caller: str = "cli-label",
+) -> list[str]:
+    """InfluxDB line protocol for the answered labels of past events: one `system1_label` point
+    per answered question, at the event's own time (`ts`, ISO 8601). Abstained answers and
+    no-answer keys are left out, so a missing label means "System 1 couldn't tell"."""
+    if not TAG_RE.match(caller):
+        raise ValueError(f"caller {caller!r} must match {TAG_RE.pattern}")
+    out = []
+    for row, response in zip(rows, responses, strict=True):
+        ts = datetime.fromisoformat(str(row["ts"]).replace("Z", "+00:00"))
+        ms = int(ts.timestamp() * 1000)
+        for qid, a in response["answers"].items():
+            if a.get("abstain") or a["choice"] in qset.no_answer_keys(qid):
+                continue
+            tags = {"caller": caller, "choice": a["choice"], "question": qid, "set": qset.name}
+            if not all(TAG_RE.match(str(v)) for v in tags.values()):
+                continue
+            fields = [
+                f"confidence={float(a['confidence'])}",
+                f"set_version={int(response['set']['version'])}i",
+                f"subject={_escape_field(row.get('subject', ''))}",
+                f"state_sha256={_escape_field(response.get('state_sha256', ''))}",
+            ]
+            tag_text = ",".join(f"{k}={v}" for k, v in sorted(tags.items()))
+            out.append(f"{LABEL_MEASUREMENT},{tag_text} {','.join(fields)} {ms}")
+    return out
 
 
 # ── COMPOSE_PROFILES ─────────────────────────────────────────────────────────

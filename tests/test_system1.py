@@ -248,6 +248,99 @@ def test_load_examples_reads_lang(tmp_path):
         s1.load_examples(qset)
 
 
+RANK_SPEC = {
+    "version": 1,
+    "questions": {
+        "worth": {
+            "type": "choice",
+            "instructions": "Does this window need a person?",
+            "criteria": {"explain": "unusual", "routine": "expected"},
+        }
+    },
+    "eval": {"min_examples": 10, "rank": {"worth": "explain"}},
+}
+
+
+def _rank_answer(p_explain):
+    return {
+        "worth": {
+            "choice": "explain" if p_explain >= 0.5 else "routine",
+            "confidence": 0.1,
+            "abstain": False,
+            "probabilities": {"explain": p_explain, "routine": 1 - p_explain},
+        }
+    }
+
+
+def _worth(expect, lang=""):
+    return s1.Example({"window": "x"}, {"worth": expect}, "generic", 1, lang)
+
+
+def test_auc():
+    assert s1.auc([(0.9, True), (0.1, False)]) == 1.0
+    assert s1.auc([(0.1, True), (0.9, False)]) == 0.0
+    assert s1.auc([(0.5, True), (0.5, False)]) == 0.5
+    assert s1.auc([(0.5, True)]) is None
+
+
+def test_ranking_question_is_gated_on_auc_only():
+    qset = s1.parse_set("screen", RANK_SPEC)
+    assert qset.gates("worth") == {"min_auc": 0.8}
+    examples = [_worth("explain")] * 5 + [_worth("routine")] * 5
+    good = [_rank_answer(0.6 + i * 0.05) for i in range(5)] + [
+        _rank_answer(0.1 + i * 0.05) for i in range(5)
+    ]
+    report = s1.evaluate(qset, examples, good)
+    (q,) = report.questions
+    assert q.auc == 1.0 and report.passed, report.failures
+    assert report.as_dict()["questions"]["worth"]["auc"] == 1.0
+    # Mixed scores: the AUC gate fails, whatever coverage or accuracy say
+    mixed = [_rank_answer(0.5)] * 10
+    report = s1.evaluate(qset, examples, mixed)
+    assert report.failures == ["worth: AUC 0.50 < 0.80"]
+
+
+def test_ranking_needs_no_nulls_and_is_not_thresholded():
+    qset = s1.parse_set("screen", RANK_SPEC)
+    examples = [_worth("explain")] * 5 + [_worth("routine")] * 5
+    assert s1.size_failures(qset, examples) == []
+    assert s1.size_failures(qset, examples[:9]) == [
+        "9 examples, the set asks for at least 10",
+        "worth: fewer than 5 examples for routine",
+    ]
+    assert s1.fit_thresholds(qset, examples, [_rank_answer(0.5)] * 10) == {}
+
+
+def test_ranking_auc_per_language():
+    qset = s1.parse_set("screen", RANK_SPEC)
+    examples = [_worth("explain", "en"), _worth("routine", "en")] * 3 + [
+        _worth("explain", "es"),
+        _worth("routine", "es"),
+    ] * 3
+    answers = [_rank_answer(0.9), _rank_answer(0.1)] * 3 + [
+        _rank_answer(0.1),
+        _rank_answer(0.9),
+    ] * 3
+    report = s1.evaluate(qset, examples, answers, gates=True)
+    (q,) = report.questions
+    assert q.auc_by_lang == {"en": 1.0, "es": 0.0}
+    assert "worth [es]: AUC 0.00 < 0.80" in report.failures
+
+
+@pytest.mark.parametrize(
+    "ev, message",
+    [
+        ({"rank": {"worth": "nope"}}, "rank must map"),
+        ({"rank": {"other": "explain"}}, "rank must map"),
+        ({"rank": {"worth": "explain"}, "gates": {"worth": {"min_coverage": 0.5}}}, "min_auc"),
+        ({"gates": {"worth": {"min_auc": 0.5}}}, "max_confident_wrong"),
+    ],
+)
+def test_bad_rank_specs(ev, message):
+    with pytest.raises(s1.QuestionSetError, match=message):
+        s1.parse_set("screen", {**RANK_SPEC, "eval": ev})
+
+
 def test_answers_must_line_up():
     qset = s1.parse_set("triage", SPEC)
     with pytest.raises(ValueError, match="1 answers for 2 examples"):
@@ -455,6 +548,27 @@ def test_feedback_examples_merge_by_id():
     assert [x["expect"] for x in s1.feedback_examples(qset, msgs)] == [{"cause": "thermal"}]
     msgs[0]["lang"] = "ES"
     assert s1.feedback_examples(qset, msgs)[0]["lang"] == "es"
+
+
+def test_label_lines():
+    qset = s1.parse_set("triage", SPEC)
+    rows = [
+        {"ts": "2026-10-01T08:00:00Z", "subject": 'gw "01"'},
+        {"ts": "2026-10-01T09:00:00+00:00", "subject": "gw-02"},
+        {"ts": "2026-10-01T10:00:00Z"},
+    ]
+    responses = [
+        {"set": {"version": 3}, "state_sha256": "ab", "answers": _answer("thermal", 0.95)},
+        {"set": {"version": 3}, "answers": _answer("thermal", 0.2)},  # abstained
+        {"set": {"version": 3}, "answers": _answer("unknown", 0.99)},  # no-answer key
+    ]
+    (line,) = s1.label_lines(qset, rows, responses)
+    assert line == (
+        "system1_label,caller=cli-label,choice=thermal,question=cause,set=triage "
+        'confidence=0.95,set_version=3i,subject="gw \\"01\\"",state_sha256="ab" 1790841600000'
+    )
+    with pytest.raises(ValueError, match="caller"):
+        s1.label_lines(qset, rows, responses, caller="Bad caller")
 
 
 def test_profiles():

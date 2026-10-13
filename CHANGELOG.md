@@ -25,6 +25,9 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `system1/feedback/<set>`; `LIST_SETS` for `GET /v1/sets` through `CLIENT`.
 - `OPERATOR_INTAKE_TOKEN` (the n8n operator-intake webhook's token) joins
   `secrets.ROTATABLE_KEYS`.
+- `p4n4_lib.system1`, System 1 S3: ranking questions (`eval.rank`), gated on the AUC of
+  their positive option (`min_auc`, `auc`); `label_lines` for `system1_label` points of past
+  events. `SYSTEM1_ALERT_TOKEN` joins `secrets.ROTATABLE_KEYS`.
 - `.p4n4.json` `dashboard.home`: the Markdown file, relative to the project, that
   p4n4-dashboard shows at the top of its Home tab (default `HOME.md`).
   `manifest.dashboard_errors` checks it stays inside the project, and
