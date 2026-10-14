@@ -782,13 +782,17 @@ def label_lines(
     caller: str = "cli-label",
 ) -> list[str]:
     """InfluxDB line protocol for the answered labels of past events: one `system1_label` point
-    per answered question, at the event's own time (`ts`, ISO 8601). Abstained answers and
-    no-answer keys are left out, so a missing label means "System 1 couldn't tell"."""
+    per answered question, at the event's own time (`ts`, ISO 8601; UTC when it names no
+    offset, as the decision log is). Abstained answers and no-answer keys are left out, so a
+    missing label means "System 1 couldn't tell"."""
     if not TAG_RE.match(caller):
         raise ValueError(f"caller {caller!r} must match {TAG_RE.pattern}")
     out = []
     for row, response in zip(rows, responses, strict=True):
         ts = datetime.fromisoformat(str(row["ts"]).replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            # Not the host's local time: the label must land where the event's decisions are
+            ts = ts.replace(tzinfo=UTC)
         ms = int(ts.timestamp() * 1000)
         for qid, a in response["answers"].items():
             if a.get("abstain") or a["choice"] in qset.no_answer_keys(qid):

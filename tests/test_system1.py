@@ -569,6 +569,9 @@ def test_label_lines():
     )
     with pytest.raises(ValueError, match="caller"):
         s1.label_lines(qset, rows, responses, caller="Bad caller")
+    # No offset: UTC, whatever the host's time zone
+    (naive,) = s1.label_lines(qset, [{"ts": "2026-10-01T08:00:00"}], responses[:1])
+    assert naive.endswith(" 1790841600000")
 
 
 def test_profiles():

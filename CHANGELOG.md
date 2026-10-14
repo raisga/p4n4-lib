@@ -9,6 +9,10 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-14
+
+0.2.1 was never published to PyPI; its changes ship in 0.3.0.
+
 ### Added
 
 - `p4n4_lib.system1`, shared by the CLI and the harness for System 1 (laya typed
@@ -27,17 +31,13 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `secrets.ROTATABLE_KEYS`.
 - `p4n4_lib.system1`, System 1 S3: ranking questions (`eval.rank`), gated on the AUC of
   their positive option (`min_auc`, `auc`); `label_lines` for `system1_label` points of past
-  events. `SYSTEM1_ALERT_TOKEN` joins `secrets.ROTATABLE_KEYS`.
+  events (a `ts` without an offset is UTC, not the host's local time).
+  `SYSTEM1_ALERT_TOKEN` joins `secrets.ROTATABLE_KEYS`.
 - `.p4n4.json` `dashboard.home`: the Markdown file, relative to the project, that
   p4n4-dashboard shows at the top of its Home tab (default `HOME.md`).
   `manifest.dashboard_errors` checks it stays inside the project, and
   `validate.validate_project` that a file the manifest names exists (the default
   `HOME.md` stays optional).
-
-## [0.2.1] - 2026-10-12
-
-### Added
-
 - `.p4n4.json` `dashboard.cameras`: the streams p4n4-dashboard's Video tab shows, each
   `{id, name}` plus one of an absolute `url`, a `port` and `path` on the connected host,
   or a `device` camera (`"back"` or `"front"`) of the phone or tablet the dashboard runs
@@ -125,6 +125,6 @@ only on GitHub, and the first published version is 0.2.0, released together with
   line endings and run inside the Linux containers. `.env` and `.p4n4.json` are read and
   written as UTF-8 with LF line endings instead of the platform defaults.
 
-[Unreleased]: https://github.com/raisga/p4n4-lib/compare/v0.2.1...HEAD
-[0.2.1]: https://github.com/raisga/p4n4-lib/compare/v0.2.0...v0.2.1
+[Unreleased]: https://github.com/raisga/p4n4-lib/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/raisga/p4n4-lib/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/raisga/p4n4-lib/releases/tag/v0.2.0
