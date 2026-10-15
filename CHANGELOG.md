@@ -9,6 +9,44 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+The edge layer merged into the ai layer, and p4n4-edge became p4n4-extras.
+
+### Added
+
+- `extras` layer (p4n4-extras): optional services outside the core. `Layer.optional`
+  keeps it out of `layers.DEFAULT_LAYERS`, the layers `--layer all` scaffolds.
+- `Layer.profile_files` and `Layer.profile_env_keys`: files and `.env` keys
+  `validate_project` requires only while the layer's `COMPOSE_PROFILES` lists the
+  profile. The ai layer's `ei-runner` profile requires the runner and its model
+  directories.
+- `layers.LEGACY_LAYERS` (`{"edge": "ai"}`) and `layers.RUNNER_SERVICE`. `layout.ordered`
+  and `layout.compose_dirs` keep finding a legacy layer, right after the layer that
+  replaced it (`layout.ORDER`), so projects made before keep running; `layout.legacy()`
+  names the ones a project still has.
+- `layout.runner_layer()`: the layer that runs the edge inference runner (`ai` with the
+  `ei-runner` profile, or a legacy `edge`), for clients that show its health.
+- `p4n4_lib.migrate.migrate_edge()`: moves a project's edge layer into `ai` (the runner,
+  its models, its `.env` values and its service, spliced into the ai compose file with
+  its comments kept; or a new ai layer scaffolded from p4n4-ai) or, when it runs other
+  services (a template's own edge layer), renames it to `extras` with its Compose
+  project name, so its volumes stay. What it replaces is kept in `edge.pre-migrate/`.
+- `scaffold.GITIGNORE` and `scaffold.write_gitignore()`: the project's `.gitignore` (every
+  layer's `.env`, generated credentials, model files, p4n4-api's data), written only when the
+  project has none.
+- `compose.enabled_services()`: the services `up` would start, so callers can skip a
+  layer with nothing enabled instead of failing with "no service selected".
+- `env.parse_profiles`, `env.add_profile` and `env.remove_profile` (`COMPOSE_PROFILES`
+  helpers, moved from `system1`, which keeps its names).
+
+### Changed
+
+- The ai layer copies `runner/`, `edge-impulse/` and `onnx/` into new projects.
+- `sources.yaml`: `extras_repo_url` replaces `edge_repo_url`.
+
+### Removed
+
+- The `edge` layer from `LAYERS`: p4n4 no longer scaffolds it.
+
 ## [0.3.0] - 2026-10-14
 
 0.2.1 was never published to PyPI; its changes ship in 0.3.0.

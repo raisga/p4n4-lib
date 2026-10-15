@@ -420,3 +420,28 @@ def test_ensure_network_keeps_an_unlabelled_one_in_use(monkeypatch):
     monkeypatch.setattr(compose.subprocess, "run", run)
     assert compose.ensure_network("p4n4-net", "172.20.0.0/16") is False
     assert [c[:3] for c in calls] == [["docker", "network", "inspect"]]
+
+
+def test_enabled_services_lists_the_active_profiles(monkeypatch, tmp_path):
+    def run(cmd, **kwargs):
+        if cmd[:3] == ["docker", "compose", "version"]:
+            return subprocess.CompletedProcess(cmd, 0)
+        assert cmd == ["docker", "compose", "config", "--services"]
+        assert kwargs["cwd"] == tmp_path
+        return subprocess.CompletedProcess(cmd, 0, stdout="ollama\nei-runner\n")
+
+    monkeypatch.setattr(compose.shutil, "which", _which({"docker"}))
+    monkeypatch.setattr(compose.subprocess, "run", run)
+    assert compose.enabled_services(tmp_path) == ["ollama", "ei-runner"]
+
+
+@pytest.mark.parametrize(("rc", "stdout", "expected"), [(0, "\n", []), (1, "", None)])
+def test_enabled_services_empty_or_unreadable(monkeypatch, tmp_path, rc, stdout, expected):
+    def run(cmd, **kwargs):
+        if cmd[:3] == ["docker", "compose", "version"]:
+            return subprocess.CompletedProcess(cmd, 0)
+        return subprocess.CompletedProcess(cmd, rc, stdout=stdout)
+
+    monkeypatch.setattr(compose.shutil, "which", _which({"docker"}))
+    monkeypatch.setattr(compose.subprocess, "run", run)
+    assert compose.enabled_services(tmp_path) == expected

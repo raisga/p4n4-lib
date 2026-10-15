@@ -94,3 +94,21 @@ def write(path: Path, values: dict[str, str], template_path: Path | None = None)
             encoding="utf-8",
             newline="\n",
         )
+
+
+# ── COMPOSE_PROFILES ─────────────────────────────────────────────────────────
+
+
+def parse_profiles(value: str) -> list[str]:
+    """The profiles a COMPOSE_PROFILES value lists, in order."""
+    return [p.strip() for p in (value or "").split(",") if p.strip()]
+
+
+def add_profile(value: str, name: str) -> str:
+    """COMPOSE_PROFILES with `name` added at the end, other entries kept in their order."""
+    profiles = parse_profiles(value)
+    return ",".join(profiles if name in profiles else [*profiles, name])
+
+
+def remove_profile(value: str, name: str) -> str:
+    return ",".join(p for p in parse_profiles(value) if p != name)

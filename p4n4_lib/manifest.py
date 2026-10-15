@@ -68,6 +68,19 @@ def dashboard_errors(data: dict) -> list[str]:
       (``POST <url>/<id>/action``), in p4n4-dashboard's feed contract. An
       optional ``token``, ``{"layer", "env"}``, names the layer ``.env``
       variable p4n4-api sends as a bearer token, so it never reaches a browser.
+    - ``vision``: what the Video tab draws over the cameras (people's boxes,
+      what they're doing, and the alerts that asks for), ``{"file"}``: a JSON
+      file inside the project that p4n4-api serves (``GET
+      /api/v1/project/vision``; see p4n4-dashboard's README, "Vision
+      overlay"). An optional ``live`` is the WebSocket that streams
+      detections and verdicts as they happen: an absolute ``ws(s)://`` ``url``,
+      or a ``port`` and ``path`` on the host the dashboard is connected to.
+    - ``chats``: the messaging chats (e.g. a Telegram bot's) that get the
+      project's alerts and may talk to it, which admins link and unlink from
+      the dashboard's Settings, ``{"url"}``: an absolute http(s) URL that
+      p4n4-api reads (``GET``) and manages (``POST <url>/codes``, ``DELETE
+      <url>/<id>``) in p4n4-dashboard's chats contract, with an optional
+      ``token`` as for ``feed``.
 
     Only the block's shape is checked here; ``validate.validate_project``
     checks that the theme directory and the home file exist.
@@ -79,7 +92,9 @@ def dashboard_errors(data: dict) -> list[str]:
         return [".p4n4.json: dashboard must be an object"]
 
     errors = []
-    for key in sorted(set(block) - {"grafana_path", "tabs", "theme", "home", "cameras", "feed"}):
+    for key in sorted(
+        set(block) - {"grafana_path", "tabs", "theme", "home", "cameras", "feed", "vision", "chats"}
+    ):
         errors.append(f".p4n4.json: dashboard.{key} is not a known setting")
 
     path = block.get("grafana_path")
@@ -110,6 +125,10 @@ def dashboard_errors(data: dict) -> list[str]:
         errors.extend(camera_errors(block["cameras"]))
     if "feed" in block:
         errors.extend(feed_errors(block["feed"]))
+    if "vision" in block:
+        errors.extend(vision_errors(block["vision"]))
+    if "chats" in block:
+        errors.extend(upstream_errors(block["chats"], "chats"))
     return errors
 
 
@@ -125,16 +144,22 @@ def _inside_project(path: object) -> bool:
 
 def feed_errors(feed: object) -> list[str]:
     """Problems with ``dashboard.feed`` (see :func:`dashboard_errors`)."""
-    where = ".p4n4.json: dashboard.feed"
-    if not isinstance(feed, dict):
+    return upstream_errors(feed, "feed")
+
+
+def upstream_errors(block: object, key: str) -> list[str]:
+    """Problems with a ``dashboard`` setting that names an upstream p4n4-api calls on
+    the dashboard's behalf (``feed``, ``chats``): ``{"url", "token"?}``."""
+    where = f".p4n4.json: dashboard.{key}"
+    if not isinstance(block, dict):
         return [f"{where} must be an object"]
     errors = [
-        f"{where}.{key} is not a known setting" for key in sorted(set(feed) - {"url", "token"})
+        f"{where}.{name} is not a known setting" for name in sorted(set(block) - {"url", "token"})
     ]
-    url = feed.get("url")
+    url = block.get("url")
     if not (isinstance(url, str) and re.match(r"^https?://[^/\s]+", url)):
         errors.append(f"{where}.url must be an absolute http(s) URL")
-    token = feed.get("token")
+    token = block.get("token")
     if token is not None:
         if not isinstance(token, dict) or set(token) != {"layer", "env"}:
             errors.append(f'{where}.token must be {{"layer", "env"}}')
@@ -144,6 +169,41 @@ def feed_errors(feed: object) -> list[str]:
             errors.append(f"{where}.token.env must be an environment variable name")
         elif not (isinstance(token["layer"], str) and token["layer"].strip()):
             errors.append(f"{where}.token.layer must be a layer name")
+    return errors
+
+
+def vision_errors(vision: object) -> list[str]:
+    """Problems with ``dashboard.vision`` (see :func:`dashboard_errors`)."""
+    where = ".p4n4.json: dashboard.vision"
+    if not isinstance(vision, dict):
+        return [f"{where} must be an object"]
+    errors = [
+        f"{where}.{key} is not a known setting" for key in sorted(set(vision) - {"file", "live"})
+    ]
+    if not _inside_project(vision.get("file")):
+        errors.append(f"{where}.file must be a file inside the project")
+    live = vision.get("live")
+    if live is None:
+        return errors
+    if not isinstance(live, dict):
+        return [*errors, f"{where}.live must be an object"]
+    errors.extend(
+        f"{where}.live.{key} is not a known setting"
+        for key in sorted(set(live) - {"url", "port", "path"})
+    )
+    url, port, path = live.get("url"), live.get("port"), live.get("path")
+    if (url is None) == (port is None):
+        errors.append(f"{where}.live needs one of url or port (with an optional path)")
+    elif url is not None:
+        if not (isinstance(url, str) and re.match(r"^wss?://[^/\s]+", url)):
+            errors.append(f"{where}.live.url must be an absolute ws(s) URL")
+        if path is not None:
+            errors.append(f"{where}.live.path only goes with port")
+    else:
+        if isinstance(port, bool) or not isinstance(port, int) or not 0 < port < 65536:
+            errors.append(f"{where}.live.port must be a TCP port (1-65535)")
+        if path is not None and not (isinstance(path, str) and path.startswith("/")):
+            errors.append(f'{where}.live.path must start with "/"')
     return errors
 
 

@@ -12,7 +12,8 @@ import re
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-from p4n4_lib.layers import LAYERS
+from p4n4_lib import env as envutil
+from p4n4_lib.layers import LAYERS, LEGACY_LAYERS, RUNNER_SERVICE
 
 COMPOSE_FILE = "docker-compose.yml"
 
@@ -22,10 +23,30 @@ NETWORK = "p4n4-net"
 NETWORK_SUBNET = "172.20.0.0/16"
 
 
+def _order() -> tuple[str, ...]:
+    """Every layer name p4n4 runs, in dependency order: the registry's, each legacy
+    layer right after the layer that replaced it."""
+    order: list[str] = []
+    for name in LAYERS:
+        order.append(name)
+        order.extend(old for old, new in LEGACY_LAYERS.items() if new == name)
+    return tuple(order)
+
+
+# iot, ai, edge (legacy), extras, dashboard
+ORDER = _order()
+
+
 def ordered(names: Iterable[str]) -> list[str]:
-    """Sort layer names into dependency order (iot before ai before edge)."""
+    """Sort layer names into dependency order (iot before ai before extras), legacy
+    layers included; unknown names are dropped."""
     wanted = set(names)
-    return [name for name in LAYERS if name in wanted]
+    return [name for name in ORDER if name in wanted]
+
+
+def legacy(names: Iterable[str]) -> list[str]:
+    """The legacy layers among `names` (see `layers.LEGACY_LAYERS`), in order."""
+    return [name for name in ordered(names) if name in LEGACY_LAYERS]
 
 
 def layer_dir(project_dir: Path, layers: Sequence[str], name: str) -> Path:
@@ -58,3 +79,20 @@ def compose_dirs(project_dir: Path, layers: Sequence[str]) -> list[tuple[str, Pa
         for name in ordered(layers)
         if (project_dir / name / COMPOSE_FILE).exists()
     ]
+
+
+def runner_layer(project_dir: Path, layers: Sequence[str]) -> str | None:
+    """
+    The layer that runs the edge inference runner (ei-runner): `ai` when its .env
+    lists the ei-runner profile, `edge` in a project made before the edge layer
+    merged into ai, else None.
+    """
+    if "edge" in layers:
+        return "edge"
+    if "ai" not in layers:
+        return None
+    env_path = layer_dir(project_dir, layers, "ai") / envutil.ENV_FILE
+    env = envutil.load(env_path) if env_path.exists() else {}
+    return (
+        "ai" if RUNNER_SERVICE in envutil.parse_profiles(env.get("COMPOSE_PROFILES", "")) else None
+    )

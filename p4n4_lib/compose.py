@@ -89,6 +89,25 @@ def down(cwd: Path, volumes: bool = False) -> int:
     return _base(args, cwd)
 
 
+def enabled_services(cwd: Path) -> list[str] | None:
+    """
+    The services `up` would start in `cwd`: those in the profiles COMPOSE_PROFILES
+    enables, plus any without a profile. An empty list means `up` would fail with "no
+    service selected" (an extras layer with nothing enabled yet). None when the config
+    can't be read; `up` then reports why.
+    """
+    result = subprocess.run(
+        [*compose_cmd(), "config", "--services"],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
 def _ps_run(cmd: list[str], cwd: Path) -> str:
     """stdout of a `ps` command; raises DockerError when it fails, so a daemon
     that's down or an invalid compose file doesn't look like an empty stack."""

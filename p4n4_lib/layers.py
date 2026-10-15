@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -18,6 +18,12 @@ class Layer:
     required_files: tuple[str, ...] = ()
     # Keys a valid project .env must define
     required_env_keys: tuple[str, ...] = ()
+    # Files and keys required only while the layer's .env lists the Compose profile
+    # (COMPOSE_PROFILES), for opt-in services that need their own files
+    profile_files: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    profile_env_keys: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    # Opt-in: left out of `--layer all`, scaffolded only when named
+    optional: bool = False
 
     @property
     def clone_prefix(self) -> str:
@@ -56,10 +62,12 @@ LAYERS: dict[str, Layer] = {
             "NODE_RED_PASSWORD",
         ),
     ),
+    # GenAI services plus the edge inference runner (profile ei-runner), which was
+    # the edge layer (p4n4-edge) until it merged into this one
     "ai": Layer(
         name="ai",
         repo_url=_sources["ai_repo_url"],
-        copy_paths=("docker-compose.yml", "config", "scripts"),
+        copy_paths=("docker-compose.yml", "config", "scripts", "runner", "edge-impulse", "onnx"),
         required_files=(
             "docker-compose.yml",
             ".env",
@@ -76,28 +84,28 @@ LAYERS: dict[str, Layer] = {
             "INFLUXDB_ORG",
             "INFLUXDB_BUCKET",
         ),
+        profile_files={
+            "ei-runner": (
+                "runner/Dockerfile",
+                "runner/runner.py",
+                "edge-impulse/models",
+                "onnx/models",
+            ),
+        },
+        profile_env_keys={
+            "ei-runner": ("MODEL_BACKEND", "MQTT_HOST", "MQTT_PORT", "INFLUXDB_BUCKET_AI_EVENTS"),
+        },
     ),
-    "edge": Layer(
-        name="edge",
-        repo_url=_sources["edge_repo_url"],
-        copy_paths=("docker-compose.yml", "runner", "edge-impulse", "onnx"),
-        required_files=(
-            "docker-compose.yml",
-            ".env",
-            "runner/Dockerfile",
-            "runner/runner.py",
-            "edge-impulse/models",
-            "onnx/models",
-        ),
-        required_env_keys=(
-            "MODEL_BACKEND",
-            "MQTT_HOST",
-            "MQTT_PORT",
-            "INFLUXDB_TOKEN",
-            "INFLUXDB_ORG",
-            "INFLUXDB_BUCKET_AI_EVENTS",
-            "TZ",
-        ),
+    # Optional services outside the core (p4n4-extras): nothing starts until the
+    # layer's COMPOSE_PROFILES lists it, and no core service depends on one
+    "extras": Layer(
+        name="extras",
+        repo_url=_sources["extras_repo_url"],
+        # Its extras are directories its compose file includes; a new project gets
+        # none, and the skeleton to copy for one
+        copy_paths=("docker-compose.yml", "_template"),
+        required_files=("docker-compose.yml", ".env"),
+        optional=True,
     ),
     # The web UI (p4n4-dashboard): one container from a released image, so
     # only its compose file is copied, not the Flutter sources. Last in the
@@ -112,3 +120,19 @@ LAYERS: dict[str, Layer] = {
 }
 
 LAYER_NAMES: tuple[str, ...] = tuple(LAYERS)
+
+# Layers `--layer all` scaffolds: every layer but the opt-in ones
+DEFAULT_LAYERS: tuple[str, ...] = tuple(
+    name for name, layer in LAYERS.items() if not layer.optional
+)
+
+# Layers p4n4 no longer scaffolds, mapped to the layer that replaced them. Projects
+# made before keep running them (`layout` still orders and finds them) until
+# `p4n4 migrate <name>` moves them into the replacement.
+LEGACY_LAYERS: dict[str, str] = {
+    # p4n4-edge's inference runner is p4n4-ai's ei-runner profile
+    "edge": "ai",
+}
+
+# The edge inference runner: its service and Compose profile in the ai layer
+RUNNER_SERVICE = "ei-runner"

@@ -15,6 +15,74 @@ class ScaffoldError(Exception):
     """Raised when fetching or copying a stack source fails."""
 
 
+GITIGNORE_FILE = ".gitignore"
+
+# The project's .gitignore: what each stack repo ignores, for every layer. The patterns
+# have no leading slash, so they match in a single-layer project (files at the root) and
+# in a multi-layer one (<layer>/...) alike.
+GITIGNORE = """\
+# Written by `p4n4 init`. Secrets and local state stay out of git; the .env.example
+# files, compose files and config are meant to be committed.
+
+# Secrets: every layer's .env
+.env
+.env.local
+.env.*.local
+
+# Machine-specific Compose overrides (a GPU, devices, other ports)
+docker-compose.override.yml
+
+# Generated credentials, certificates and keys (iot layer)
+**/config/mosquitto/passwd
+**/config/mosquitto/acl
+**/config/mosquitto/certs/*
+!**/config/mosquitto/certs/.gitkeep
+**/config/node-red/flows_cred.json
+**/config/node-red/flows/flows_cred.json
+
+# Runtime state written into the project
+**/config/node-red/flows/.*.backup
+**/config/node-red/*.backup
+**/config/node-red/.config*
+**/config/node-red/lib/
+**/config/node-red/node_modules/
+**/config/node-red/package-lock.json
+**/config/grafana/grafana.db
+**/config/grafana/grafana.db-journal
+data/
+
+# Model files for the inference runner (ai layer): provided at deploy time
+**/edge-impulse/models/*.eim
+**/edge-impulse/models/*.eim.bak
+**/edge-impulse/models/*.zip
+**/onnx/models/*.onnx
+**/onnx/models/*.onnx.bak
+
+# p4n4-api's users and JWT secret, when it keeps them in the project (scripts/dev)
+.p4n4-api/
+
+# What `p4n4 migrate edge` keeps from the old edge layer, until it's deleted
+edge.pre-migrate/
+
+# Editors and operating systems
+__pycache__/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+"""
+
+
+def write_gitignore(project_dir: Path) -> bool:
+    """Write the project's .gitignore; True if written. An existing one (the user's own,
+    or a template's) is left as it is."""
+    path = project_dir / GITIGNORE_FILE
+    if path.exists():
+        return False
+    path.write_text(GITIGNORE, encoding="utf-8", newline="\n")
+    return True
+
+
 def fetch_source(layer: Layer, source: str | Path | None = None) -> tuple[Path, str | None]:
     """
     Return a (Path, tmpdir_or_None) to a stack source directory.

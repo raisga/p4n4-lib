@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from p4n4_lib import env as envutil
+
 # Where a project's ai layer keeps its sets, and the Compose profile and key that enable it
 SETS_DIR = "config/system1/questions"
 PROFILE = "system1"
@@ -814,18 +816,17 @@ def label_lines(
 # ── COMPOSE_PROFILES ─────────────────────────────────────────────────────────
 
 
-def parse_profiles(value: str) -> list[str]:
-    return [p.strip() for p in (value or "").split(",") if p.strip()]
+# The generic helpers live in p4n4_lib.env; these default to the system1 profile
+parse_profiles = envutil.parse_profiles
 
 
 def add_profile(value: str, name: str = PROFILE) -> str:
     """COMPOSE_PROFILES with `name` added at the end, other entries kept in their order."""
-    profiles = parse_profiles(value)
-    return ",".join(profiles if name in profiles else [*profiles, name])
+    return envutil.add_profile(value, name)
 
 
 def remove_profile(value: str, name: str = PROFILE) -> str:
-    return ",".join(p for p in parse_profiles(value) if p != name)
+    return envutil.remove_profile(value, name)
 
 
 # ── In-container client ──────────────────────────────────────────────────────

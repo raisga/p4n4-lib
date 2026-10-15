@@ -10,7 +10,7 @@ from p4n4_lib import env as envutil
 from p4n4_lib import layout
 from p4n4_lib import manifest as mf
 from p4n4_lib import secrets as secretutil
-from p4n4_lib.layers import LAYERS
+from p4n4_lib.layers import DEFAULT_LAYERS, LAYERS, LEGACY_LAYERS
 from p4n4_lib.scaffold import ScaffoldError, fetch_source
 from p4n4_lib.validate import validate_project
 
@@ -109,6 +109,14 @@ def test_setup_only_secrets_are_never_rotated():
     assert set(secretutil.SECRET_KEYS) == {*secretutil.ROTATABLE_KEYS, *secretutil.SETUP_KEYS}
 
 
+def test_profile_helpers():
+    assert envutil.parse_profiles(" ollama, ,n8n ") == ["ollama", "n8n"]
+    assert envutil.add_profile("ollama", "ei-runner") == "ollama,ei-runner"
+    assert envutil.add_profile("ollama,ei-runner", "ei-runner") == "ollama,ei-runner"
+    assert envutil.add_profile("", "ei-runner") == "ei-runner"
+    assert envutil.remove_profile("ollama,ei-runner", "ei-runner") == "ollama"
+
+
 def test_rotation_value_sizes():
     assert len(secretutil.rotation_value("GRAFANA_PASSWORD")) == 32
     assert len(secretutil.rotation_value("INFLUXDB_TOKEN")) == 64
@@ -118,20 +126,63 @@ def test_rotation_value_sizes():
 
 
 def test_layer_registry_shape():
-    assert set(LAYERS) == {"iot", "ai", "edge", "dashboard"}
+    assert set(LAYERS) == {"iot", "ai", "extras", "dashboard"}
     for layer in LAYERS.values():
         assert layer.repo_url.startswith("https://")
         assert layer.clone_prefix == f"p4n4-{layer.name}-"
+
+
+def test_extras_is_opt_in_and_edge_is_legacy():
+    # `--layer all` leaves the optional extras out
+    assert DEFAULT_LAYERS == ("iot", "ai", "dashboard")
+    assert LAYERS["extras"].optional
+    assert LAYERS["extras"].repo_url.endswith("/p4n4-extras.git")
+    # The edge layer's runner is the ai layer's ei-runner profile now
+    assert LEGACY_LAYERS == {"edge": "ai"}
+    assert {"runner", "edge-impulse", "onnx"} <= set(LAYERS["ai"].copy_paths)
+    assert "runner/runner.py" in LAYERS["ai"].profile_files["ei-runner"]
 
 
 # ── layout ────────────────────────────────────────────────────────────────────
 
 
 def test_ordered_sorts_into_dependency_order():
-    assert layout.ordered(["edge", "ai", "iot"]) == ["iot", "ai", "edge"]
+    assert layout.ordered(["extras", "ai", "iot"]) == ["iot", "ai", "extras"]
     assert layout.ordered(["ai"]) == ["ai"]
     # The dashboard starts after the stacks it shows (and stops before them)
     assert layout.ordered(["dashboard", "iot", "ai"]) == ["iot", "ai", "dashboard"]
+    # Unknown names are dropped
+    assert layout.ordered(["iot", "nope"]) == ["iot"]
+
+
+def test_ordered_keeps_legacy_layers_after_their_replacement():
+    # Projects made before the edge layer merged into ai keep running it
+    assert layout.ordered(["edge", "dashboard", "extras", "ai", "iot"]) == [
+        "iot",
+        "ai",
+        "edge",
+        "extras",
+        "dashboard",
+    ]
+    assert layout.legacy(["iot", "ai", "edge"]) == ["edge"]
+    assert layout.legacy(["iot", "ai"]) == []
+
+
+def _ai_env(tmp_path, layers, profiles):
+    ai = layout.layer_dir(tmp_path, layers, "ai")
+    ai.mkdir(exist_ok=True)
+    envutil.write(ai / ".env", {"COMPOSE_PROFILES": profiles})
+
+
+def test_runner_layer(tmp_path):
+    assert layout.runner_layer(tmp_path, ["iot"]) is None
+    assert layout.runner_layer(tmp_path, ["iot", "edge"]) == "edge"
+    _ai_env(tmp_path, ["iot", "ai"], "ollama")
+    assert layout.runner_layer(tmp_path, ["iot", "ai"]) is None
+    _ai_env(tmp_path, ["iot", "ai"], "ollama, ei-runner")
+    assert layout.runner_layer(tmp_path, ["iot", "ai"]) == "ai"
+    # Without a .env, nothing is enabled
+    assert layout.runner_layer(tmp_path / "missing", ["iot", "ai"]) is None
 
 
 def test_layer_dir_single_layer_is_project_root(tmp_path):
@@ -151,16 +202,27 @@ def test_compose_dirs_multi_layer_subdirs(tmp_path):
     for name in ("iot", "ai"):
         (tmp_path / name).mkdir()
         (tmp_path / name / layout.COMPOSE_FILE).touch()
-    assert layout.compose_dirs(tmp_path, ["ai", "iot", "edge"]) == [
+    assert layout.compose_dirs(tmp_path, ["ai", "iot", "extras"]) == [
         ("iot", tmp_path / "iot"),
         ("ai", tmp_path / "ai"),
+    ]
+
+
+def test_compose_dirs_finds_a_legacy_edge_layer(tmp_path):
+    for name in ("iot", "ai", "edge"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / layout.COMPOSE_FILE).touch()
+    assert [name for name, _ in layout.compose_dirs(tmp_path, ["edge", "ai", "iot"])] == [
+        "iot",
+        "ai",
+        "edge",
     ]
 
 
 def test_compose_dirs_skips_unscaffolded_layers(tmp_path):
     (tmp_path / "iot").mkdir()
     (tmp_path / "iot" / layout.COMPOSE_FILE).touch()
-    assert layout.compose_dirs(tmp_path, ["iot", "edge"]) == [("iot", tmp_path / "iot")]
+    assert layout.compose_dirs(tmp_path, ["iot", "extras"]) == [("iot", tmp_path / "iot")]
 
 
 @pytest.mark.parametrize(
@@ -269,6 +331,47 @@ def test_validate_flags_missing_file_and_key(tmp_path):
     _, errors = validate_project(tmp_path, data)
     assert "Missing file: config/mosquitto/mosquitto.conf" in errors
     assert ".env missing required key: GRAFANA_PASSWORD" in errors
+
+
+def _make_ai_project(tmp_path, profiles):
+    layer = LAYERS["ai"]
+    data = mf.create("proj", ["ai"])
+    mf.save(tmp_path / mf.MANIFEST_FILE, data)
+    for rel in layer.required_files:
+        path = tmp_path / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    envutil.write(
+        tmp_path / ".env",
+        {"COMPOSE_PROFILES": profiles, **{key: "x" for key in layer.required_env_keys}},
+    )
+    return data
+
+
+def test_validate_checks_runner_files_only_when_its_profile_is_enabled(tmp_path):
+    # An ai layer from before the merge, without the runner: still valid
+    data = _make_ai_project(tmp_path, "ollama")
+    assert validate_project(tmp_path, data)[1] == []
+
+    envutil.set_value(tmp_path / ".env", "COMPOSE_PROFILES", "ollama,ei-runner")
+    _, errors = validate_project(tmp_path, data)
+    assert "Missing file: runner/runner.py" in errors
+    assert "Missing file: edge-impulse/models" in errors
+    assert ".env missing required key: MODEL_BACKEND" in errors
+
+
+def test_validate_skips_a_legacy_layer(tmp_path):
+    data = _make_iot_project(tmp_path)
+    data["layers"] = ["iot", "edge"]
+    (tmp_path / "iot").mkdir()
+    for rel in [*LAYERS["iot"].required_files]:
+        path = tmp_path / "iot" / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.touch()
+    envutil.write(tmp_path / "iot" / ".env", {k: "x" for k in LAYERS["iot"].required_env_keys})
+    _, errors = validate_project(tmp_path, data)
+    # The CLI warns about the edge layer; validation doesn't fail on it
+    assert not [e for e in errors if "edge" in e]
 
 
 def test_validate_flags_schema_mismatch(tmp_path):
@@ -466,6 +569,33 @@ def test_dashboard_feed_errors(feed, message):
     assert len(errors) == 1 and message in errors[0]
 
 
+@pytest.mark.parametrize(
+    ("chats", "message"),
+    [
+        ("http://x/chats", "dashboard.chats must be an object"),
+        ({}, "dashboard.chats.url must be an absolute http(s) URL"),
+        ({"url": "localhost:8096/chats"}, "dashboard.chats.url must be an absolute http(s) URL"),
+        ({"url": "http://x/chats", "bot": "@b"}, "dashboard.chats.bot is not a known setting"),
+        ({"url": "http://x/chats", "token": "t"}, 'dashboard.chats.token must be {"layer", "env"}'),
+        (
+            {"url": "http://x/chats", "token": {"layer": "ai", "env": "lower"}},
+            "dashboard.chats.token.env must be an environment variable name",
+        ),
+    ],
+)
+def test_dashboard_chats_errors(chats, message):
+    errors = mf.dashboard_errors({"dashboard": {"chats": chats}})
+    assert len(errors) == 1 and message in errors[0]
+
+
+def test_dashboard_chats_valid():
+    chats = {
+        "url": "http://localhost:8096/api/v1/chats",
+        "token": {"layer": "ai", "env": "CHANNELS_ADMIN_TOKEN"},
+    }
+    assert mf.dashboard_errors({"dashboard": {"chats": chats}}) == []
+
+
 def test_dashboard_feed_valid():
     feed = {
         "url": "http://localhost:8090/api/v1/feed",
@@ -473,6 +603,70 @@ def test_dashboard_feed_valid():
     }
     assert mf.dashboard_errors({"dashboard": {"tabs": ["feed"], "feed": feed}}) == []
     assert mf.dashboard_errors({"dashboard": {"feed": {"url": "https://x.example/feed"}}}) == []
+
+
+@pytest.mark.parametrize(
+    ("vision", "message"),
+    [
+        ("vision.json", "dashboard.vision must be an object"),
+        ({}, "dashboard.vision.file must be a file inside the project"),
+        ({"file": "../vision.json"}, "dashboard.vision.file must be a file inside the project"),
+        ({"file": "v.json", "fps": 5}, "vision.fps is not a known setting"),
+        ({"file": "v.json", "live": "ws://x/stream"}, "dashboard.vision.live must be an object"),
+        ({"file": "v.json", "live": {}}, "live needs one of url or port"),
+        (
+            {"file": "v.json", "live": {"url": "ws://x/s", "port": 8000}},
+            "live needs one of url or port",
+        ),
+        (
+            {"file": "v.json", "live": {"url": "http://x/stream"}},
+            "live.url must be an absolute ws(s) URL",
+        ),
+        (
+            {"file": "v.json", "live": {"url": "ws://x/s", "path": "/s"}},
+            "live.path only goes with port",
+        ),
+        ({"file": "v.json", "live": {"port": 0}}, "live.port must be a TCP port"),
+        (
+            {"file": "v.json", "live": {"port": 8000, "path": "stream"}},
+            'live.path must start with "/"',
+        ),
+        (
+            {"file": "v.json", "live": {"port": 8000, "token": "x"}},
+            "live.token is not a known setting",
+        ),
+    ],
+)
+def test_dashboard_vision_errors(vision, message):
+    errors = mf.dashboard_errors({"dashboard": {"vision": vision}})
+    assert len(errors) == 1 and message in errors[0]
+
+
+def test_dashboard_vision_valid():
+    for vision in [
+        {"file": "vision/boutique.json"},
+        {"file": "v.json", "live": {"port": 8000, "path": "/stream"}},
+        {"file": "v.json", "live": {"port": 8000}},
+        {"file": "v.json", "live": {"url": "wss://edge.example/stream"}},
+    ]:
+        assert mf.dashboard_errors({"dashboard": {"tabs": ["video"], "vision": vision}}) == []
+
+
+def test_dashboard_vision_file_is_checked(tmp_path):
+    data = _make_template_project(tmp_path, dashboard={"vision": {"file": "vision.json"}})
+    assert validate_project(tmp_path, data)[1] == [
+        "Missing file: vision.json (.p4n4.json dashboard.vision.file)"
+    ]
+    (tmp_path / "vision.json").write_text("{not json")
+    assert validate_project(tmp_path, data)[1][0].startswith("vision.json: not valid JSON")
+    (tmp_path / "vision.json").write_text("[]")
+    assert validate_project(tmp_path, data)[1] == [
+        'vision.json: a vision overlay is an object with "cameras"'
+    ]
+    (tmp_path / "vision.json").write_text('{"cameras": {"a": {}, "b": {}}}')
+    passed, errors = validate_project(tmp_path, data)
+    assert errors == []
+    assert "vision.json: vision overlay (2 cameras)" in passed
 
 
 def test_dashboard_cameras_valid():
@@ -570,3 +764,61 @@ def test_dashboard_layer_scaffolds_and_validates(tmp_path):
     assert errors == []
     assert "dashboard/.env: all required keys present" in passed
     assert layout.compose_dirs(project, data["layers"])[-1] == ("dashboard", project / "dashboard")
+
+
+# ── project .gitignore ────────────────────────────────────────────────────────
+
+
+def _git_ignored(repo, paths):
+    """The paths git ignores in repo, by `git check-ignore`."""
+    import shutil
+    import subprocess
+
+    if shutil.which("git") is None:
+        pytest.skip("git not installed")
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    result = subprocess.run(
+        ["git", "-C", str(repo), "check-ignore", "--no-index", *paths],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return set(result.stdout.split())
+
+
+@pytest.mark.parametrize("prefix", ["", "iot/", "ai/"])
+def test_project_gitignore_keeps_secrets_and_models_out(tmp_path, prefix):
+    from p4n4_lib import scaffold
+
+    assert scaffold.write_gitignore(tmp_path)
+    secret = [
+        f"{prefix}.env",
+        f"{prefix}docker-compose.override.yml",
+        f"{prefix}config/mosquitto/passwd",
+        f"{prefix}config/mosquitto/certs/ca.crt",
+        f"{prefix}config/node-red/flows/flows_cred.json",
+        f"{prefix}edge-impulse/models/model.eim",
+        f"{prefix}onnx/models/model.onnx",
+        ".p4n4-api/jwt.key",
+        "edge.pre-migrate/.env",
+    ]
+    kept = [
+        ".p4n4.json",
+        f"{prefix}.env.example",
+        f"{prefix}docker-compose.yml",
+        f"{prefix}config/mosquitto/mosquitto.conf",
+        f"{prefix}config/mosquitto/certs/.gitkeep",
+        f"{prefix}config/node-red/flows/flows.json",
+        f"{prefix}edge-impulse/models/.gitkeep",
+        f"{prefix}runner/runner.py",
+    ]
+    ignored = _git_ignored(tmp_path, secret + kept)
+    assert ignored == set(secret)
+
+
+def test_project_gitignore_leaves_an_existing_one(tmp_path):
+    from p4n4_lib import scaffold
+
+    (tmp_path / ".gitignore").write_text("mine\n")
+    assert not scaffold.write_gitignore(tmp_path)
+    assert (tmp_path / ".gitignore").read_text() == "mine\n"

@@ -43,6 +43,9 @@ def validate_project(project_dir: Path, data: dict) -> tuple[list[str], list[str
                 passed.append(f"{home}: dashboard home page")
             else:
                 errors.append(f"Missing file: {home} (.p4n4.json dashboard.home)")
+        vision = data["dashboard"].get("vision")
+        if isinstance(vision, dict) and isinstance(vision.get("file"), str):
+            _check_vision(project_dir / vision["file"], vision["file"], passed, errors)
 
     layer_names: list[str] = data.get("layers", [])
     multi = len(layer_names) > 1
@@ -57,12 +60,20 @@ def validate_project(project_dir: Path, data: dict) -> tuple[list[str], list[str
         base = layout.layer_dir(project_dir, layer_names, name)
         prefix = f"{name}/" if multi else ""
 
+        env_path = base / envutil.ENV_FILE
         if from_template:
             required_files: tuple[str, ...] = (layout.COMPOSE_FILE, envutil.ENV_FILE)
             example = base / f"{envutil.ENV_FILE}.example"
             required_keys = tuple(envutil.load(example)) if example.exists() else ()
         else:
             required_files, required_keys = layer.required_files, layer.required_env_keys
+            # Opt-in services' own files and keys, while their profile is enabled
+            enabled = envutil.parse_profiles(
+                envutil.load(env_path).get("COMPOSE_PROFILES", "") if env_path.exists() else ""
+            )
+            for profile in enabled:
+                required_files += layer.profile_files.get(profile, ())
+                required_keys += layer.profile_env_keys.get(profile, ())
 
         for rel in required_files:
             if (base / rel).exists():
@@ -73,7 +84,6 @@ def validate_project(project_dir: Path, data: dict) -> tuple[list[str], list[str
         if not required_keys:
             continue
 
-        env_path = base / envutil.ENV_FILE
         if env_path.exists():
             env = envutil.load(env_path)
             # Template variables may be deliberately empty (COMPOSE_PROFILES=)
@@ -90,6 +100,22 @@ def validate_project(project_dir: Path, data: dict) -> tuple[list[str], list[str
             errors.append(f"{prefix}.env file not found")
 
     return passed, errors
+
+
+def _check_vision(path: Path, label: str, passed: list[str], errors: list[str]) -> None:
+    """The vision overlay must be a JSON object; p4n4-dashboard checks the rest."""
+    if not path.is_file():
+        errors.append(f"Missing file: {label} (.p4n4.json dashboard.vision.file)")
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+        errors.append(f"{label}: not valid JSON ({e})")
+        return
+    if isinstance(data, dict) and isinstance(data.get("cameras"), dict):
+        passed.append(f"{label}: vision overlay ({len(data['cameras'])} cameras)")
+    else:
+        errors.append(f'{label}: a vision overlay is an object with "cameras"')
 
 
 def _check_theme(theme_dir: Path, label: str, errors: list[str]) -> None:
