@@ -185,6 +185,24 @@ def test_runner_layer(tmp_path):
     assert layout.runner_layer(tmp_path / "missing", ["iot", "ai"]) is None
 
 
+def test_network_subnet(tmp_path):
+    layers = ["iot", "ai"]
+    # Without a .env, or with P4N4_SUBNET unset or empty, the default
+    assert layout.network_subnet(tmp_path, layers) == layout.NETWORK_SUBNET
+    (tmp_path / "ai").mkdir()
+    (tmp_path / "ai" / ".env").write_text("P4N4_SUBNET=172.29.0.0/16\n")
+    assert layout.network_subnet(tmp_path, layers) == "172.29.0.0/16"
+    # iot's comes first: p4n4-iot creates the network with it
+    (tmp_path / "iot").mkdir()
+    (tmp_path / "iot" / ".env").write_text("P4N4_SUBNET=\n")
+    assert layout.network_subnet(tmp_path, layers) == "172.29.0.0/16"
+    (tmp_path / "iot" / ".env").write_text("P4N4_SUBNET=172.28.0.0/16\n")
+    assert layout.network_subnet(tmp_path, layers) == "172.28.0.0/16"
+    # A single-layer project keeps its .env at the root
+    (tmp_path / ".env").write_text("P4N4_SUBNET=10.40.0.0/16\n")
+    assert layout.network_subnet(tmp_path, ["iot"]) == "10.40.0.0/16"
+
+
 def test_layer_dir_single_layer_is_project_root(tmp_path):
     assert layout.layer_dir(tmp_path, ["iot"], "iot") == tmp_path
 

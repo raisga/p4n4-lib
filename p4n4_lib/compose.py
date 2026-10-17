@@ -164,7 +164,15 @@ def ensure_network(name: str, subnet: str) -> bool:
     except FileNotFoundError as exc:
         raise DockerError("Docker not found: install it, or add `docker` to PATH.") from exc
     if create.returncode != 0:
-        detail = (create.stderr or "").strip() or f"exited with {create.returncode}"
+        detail = (
+            create.stderr or create.stdout or ""
+        ).strip() or f"exited with {create.returncode}"
+        if "overlaps" in detail:
+            # Another network (often a VPN's, or another Compose project's) holds it
+            detail += (
+                f"\n{subnet} is taken: set P4N4_SUBNET to a free range (e.g. 172.28.0.0/16)"
+                " in a layer's .env, iot's if the project has one, then run it again."
+            )
         raise DockerError(f"Could not create the {name} network: {detail}")
     return True
 

@@ -400,6 +400,19 @@ def test_ensure_network_raises_when_create_fails(monkeypatch):
         compose.ensure_network("p4n4-net", "172.20.0.0/16")
 
 
+def test_ensure_network_names_p4n4_subnet_when_the_subnet_is_taken(monkeypatch):
+    def run(cmd, **kwargs):
+        if cmd[:3] == ["docker", "network", "inspect"]:
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found")
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout="", stderr="invalid pool request: Pool overlaps with other one"
+        )
+
+    monkeypatch.setattr(compose.subprocess, "run", run)
+    with pytest.raises(compose.DockerError, match="172.20.0.0/16 is taken: set P4N4_SUBNET"):
+        compose.ensure_network("p4n4-net", "172.20.0.0/16")
+
+
 def test_ensure_network_recreates_an_unlabelled_unused_one(monkeypatch):
     calls = []
     run = _network_run(calls, exists=True, label="<no value>", attached=0)

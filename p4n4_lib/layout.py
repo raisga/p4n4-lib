@@ -17,10 +17,12 @@ from p4n4_lib.layers import LAYERS, LEGACY_LAYERS, RUNNER_SERVICE
 
 COMPOSE_FILE = "docker-compose.yml"
 
-# The network every stack joins. p4n4-iot creates it (with this subnet); the
-# other stacks declare it external, so it must exist before they start.
+# The network every stack joins. p4n4-iot creates it (with this subnet, or the
+# one P4N4_SUBNET sets); the other stacks declare it external, so it must exist
+# before they start.
 NETWORK = "p4n4-net"
 NETWORK_SUBNET = "172.20.0.0/16"
+SUBNET_KEY = "P4N4_SUBNET"
 
 
 def _order() -> tuple[str, ...]:
@@ -79,6 +81,21 @@ def compose_dirs(project_dir: Path, layers: Sequence[str]) -> list[tuple[str, Pa
         for name in ordered(layers)
         if (project_dir / name / COMPOSE_FILE).exists()
     ]
+
+
+def network_subnet(project_dir: Path, layers: Sequence[str]) -> str:
+    """
+    The subnet for p4n4-net: P4N4_SUBNET from the first layer's .env that sets it,
+    in dependency order (iot's, where p4n4-iot reads it, comes first), else
+    NETWORK_SUBNET. Creating p4n4-net on another subnet than p4n4-iot asks for
+    would leave the setting unused, or fail where the default overlaps another network.
+    """
+    for name in ordered(layers):
+        env_path = layer_dir(project_dir, layers, name) / envutil.ENV_FILE
+        subnet = envutil.load(env_path).get(SUBNET_KEY) if env_path.exists() else None
+        if subnet:
+            return subnet
+    return NETWORK_SUBNET
 
 
 def runner_layer(project_dir: Path, layers: Sequence[str]) -> str | None:

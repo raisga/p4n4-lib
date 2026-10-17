@@ -9,6 +9,22 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-17
+
+Fixes creating `p4n4-net` where another network holds its default subnet.
+
+### Added
+
+- `layout.network_subnet(project_dir, layers)`: the subnet for `p4n4-net`, from
+  `P4N4_SUBNET` in the first layer's `.env` that sets it (iot's first), else
+  `layout.NETWORK_SUBNET`. `layout.SUBNET_KEY` names the key.
+
+### Changed
+
+- `compose.ensure_network()` adds what to do when the subnet overlaps another network
+  (set `P4N4_SUBNET` to a free range), and falls back to the command's stdout when
+  stderr is empty.
+
 ## [0.4.0] - 2026-10-16
 
 The edge layer merged into the ai layer, and p4n4-edge became p4n4-extras.
@@ -165,7 +181,8 @@ only on GitHub, and the first published version is 0.2.0, released together with
   line endings and run inside the Linux containers. `.env` and `.p4n4.json` are read and
   written as UTF-8 with LF line endings instead of the platform defaults.
 
-[Unreleased]: https://github.com/raisga/p4n4-lib/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/raisga/p4n4-lib/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/raisga/p4n4-lib/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/raisga/p4n4-lib/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/raisga/p4n4-lib/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/raisga/p4n4-lib/releases/tag/v0.2.0
