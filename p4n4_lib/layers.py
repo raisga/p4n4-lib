@@ -63,7 +63,8 @@ LAYERS: dict[str, Layer] = {
         ),
     ),
     # GenAI services plus the edge inference runner (profile ei-runner), which was
-    # the edge layer (p4n4-edge) until it merged into this one
+    # the edge layer (p4n4-edge) until it merged into this one, and the incident
+    # investigator (profile agent), which ships as an image: nothing to copy
     "ai": Layer(
         name="ai",
         repo_url=_sources["ai_repo_url"],
@@ -94,6 +95,8 @@ LAYERS: dict[str, Layer] = {
         },
         profile_env_keys={
             "ei-runner": ("MODEL_BACKEND", "MQTT_HOST", "MQTT_PORT", "INFLUXDB_BUCKET_AI_EVENTS"),
+            # The service refuses to start without either
+            "agent": ("AGENT_API_TOKEN", "AGENT_MODEL"),
         },
     ),
     # Optional services outside the core (p4n4-extras): nothing starts until the

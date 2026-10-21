@@ -378,6 +378,24 @@ def test_validate_checks_runner_files_only_when_its_profile_is_enabled(tmp_path)
     assert ".env missing required key: MODEL_BACKEND" in errors
 
 
+def test_validate_checks_agent_keys_only_when_its_profile_is_enabled(tmp_path):
+    data = _make_ai_project(tmp_path, "ollama")
+    envutil.set_value(tmp_path / ".env", "COMPOSE_PROFILES", "ollama,agent")
+    _, errors = validate_project(tmp_path, data)
+    assert ".env missing required key: AGENT_API_TOKEN" in errors
+    assert ".env missing required key: AGENT_MODEL" in errors
+
+    envutil.set_value(tmp_path / ".env", "AGENT_API_TOKEN", secretutil.token())
+    envutil.set_value(tmp_path / ".env", "AGENT_MODEL", "llama3.2")
+    assert validate_project(tmp_path, data)[1] == []
+
+
+def test_agent_token_is_rotatable():
+    # The agent reads it at every start
+    assert "AGENT_API_TOKEN" in secretutil.ROTATABLE_KEYS
+    assert len(secretutil.rotation_value("AGENT_API_TOKEN")) == 64
+
+
 def test_validate_skips_a_legacy_layer(tmp_path):
     data = _make_iot_project(tmp_path)
     data["layers"] = ["iot", "edge"]

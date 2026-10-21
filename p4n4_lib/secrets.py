@@ -20,6 +20,8 @@ ROTATABLE_KEYS = (
     # Grafana's System 1 drift alerts send it to n8n's system1-drift webhook: the
     # same value in the iot and ai layers, and n8n's "p4n4 System 1 Alerts" credential
     "SYSTEM1_ALERT_TOKEN",
+    # Bearer token of the incident investigator's status API (agent profile)
+    "AGENT_API_TOKEN",
 )
 
 # Secrets their services read only when they first set up their data: InfluxDB
