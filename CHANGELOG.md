@@ -9,6 +9,18 @@ Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-29
+
+Knows the ai layer's incident investigator (profile `agent`).
+
+### Added
+
+- `layers.LAYERS["ai"]`: the `agent` profile requires `AGENT_API_TOKEN` and `AGENT_MODEL`
+  in the ai layer's `.env`, so `validate` reports them missing while the profile is
+  enabled. The service ships as an image (`ghcr.io/raisga/p4n4-agent`): no files to copy.
+- `secrets.ROTATABLE_KEYS` includes `AGENT_API_TOKEN`, the bearer token of the
+  investigator's status API.
+
 ## [0.4.1] - 2026-10-17
 
 Fixes creating `p4n4-net` where another network holds its default subnet.
@@ -181,7 +193,8 @@ only on GitHub, and the first published version is 0.2.0, released together with
   line endings and run inside the Linux containers. `.env` and `.p4n4.json` are read and
   written as UTF-8 with LF line endings instead of the platform defaults.
 
-[Unreleased]: https://github.com/raisga/p4n4-lib/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/raisga/p4n4-lib/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/raisga/p4n4-lib/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/raisga/p4n4-lib/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/raisga/p4n4-lib/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/raisga/p4n4-lib/compare/v0.2.0...v0.3.0
