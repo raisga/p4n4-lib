@@ -9,6 +9,8 @@ import secrets as _secrets
 ROTATABLE_KEYS = (
     # IoT layer
     "NODE_RED_PASSWORD",
+    "MQTT_PASSWORD",
+    "MQTT_READONLY_PASSWORD",
     # AI layer
     "LETTA_SERVER_PASSWORD",
     # Also stored in n8n's "p4n4 System 1" credential, which `secret rotate` updates,
